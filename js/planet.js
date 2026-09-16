@@ -254,52 +254,90 @@ void main(){
 /* ── 大气 ────────────────────────────────────────────── */
 
 const ATMO_VERT = `
-varying vec3 vNrm;
-varying vec3 vView;
-varying vec3 vObj;
-varying float vFlat;
-
-${DEFORM}
-
+varying vec3 vWorld;
 void main(){
-  vNrm = normalize(normalMatrix * normal);
-  vObj = normalize(position);
-  float f;
-  vec3 p = flatten(position, f);
-  vFlat = f;
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  vView = normalize(-mv.xyz);
-  gl_Position = projectionMatrix * mv;
+  vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
+
 `;
 
 const ATMO_FRAG = `
 precision highp float;
-uniform vec3  uColor;       // 深空侧冷色
-uniform vec3  uSunset;      // 终结线暖色
-uniform float uDensity;
-uniform float uShatter;
+
+// 解析式单次散射。不靠网格形状表现大气：对每条视线求它实际穿过
+// 大气层的弦长并沿途积分，密度随高度指数衰减，因此到外缘自然归零，
+// 不存在可见的边界。之前用球壳 + fresnel，球壳的几何外边界就是
+// 那层「膜」的来源。
 uniform vec3  uLightDir;
-varying vec3 vNrm;
-varying vec3 vView;
-varying vec3 vObj;
-varying float vFlat;
+uniform float uDensity;   // 气压驱动
+uniform float uFade;      // 二向箔/挤压时整体淡出
+uniform vec3  uTint;      // 温度驱动的偏色
+
+varying vec3 vWorld;
+
+const float Rp = 1.00;    // 行星半径
+const float Ra = 1.14;    // 大气外缘（真实约 1.016，此处夸张以便可见）
+const float H  = 4.2;     // 标高倒数：越大衰减越快
+
+// 射线与球求交。无交点时返回一个空区间。
+vec2 raySphere(vec3 ro, vec3 rd, float R){
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - R * R;
+  float d = b * b - c;
+  if(d < 0.0) return vec2(1.0, -1.0);
+  d = sqrt(d);
+  return vec2(-b - d, -b + d);
+}
 
 void main(){
-  vec3 nrm = normalize(vNrm);
-  // 指数越高边缘越紧。参照里好看的大气都是「细而亮」，不是「宽而糊」。
-  float rim = pow(clamp(1.0 - abs(dot(nrm, normalize(vView))), 0.0, 1.0), 4.2);
+  vec3 ro = cameraPosition;
+  vec3 rd = normalize(vWorld - cameraPosition);
 
-  float ndl = dot(normalize(vObj), normalize(uLightDir));
-  float daySide = smoothstep(-0.46, 0.20, ndl);
+  vec2 atm = raySphere(ro, rd, Ra);
+  if(atm.y <= 0.0 || atm.x >= atm.y) discard;
 
-  // 终结线附近的暖色环 —— 从轨道上看到的那圈日出日落
-  float sunset = exp(-ndl * ndl * 12.0);
+  float t0 = max(atm.x, 0.0);
+  float t1 = atm.y;
 
-  vec3 col = mix(uColor, uSunset, sunset * 0.88);
-  float a = rim * uDensity * daySide * (1.0 - vFlat) * (1.0 - smoothstep(0.0, 0.26, uShatter));
-  gl_FragColor = vec4(col * a * 1.45, a);
+  // 视线若打到行星本体，积分到那里为止——行星背后的大气看不见
+  vec2 pl = raySphere(ro, rd, Rp);
+  if(pl.x < pl.y && pl.y > 0.0) t1 = min(t1, max(pl.x, 0.0));
+  if(t1 <= t0) discard;
+
+  vec3 L = normalize(uLightDir);
+  // 逐像素抖动起点。等距采样在这种薄壳积分上会留下肉眼可见的同心条纹。
+  float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  const int STEPS = 12;
+  float seg = (t1 - t0) / float(STEPS);
+
+  vec3 acc = vec3(0.0);
+
+  for(int i = 0; i < STEPS; i++){
+    vec3 p = ro + rd * (t0 + (float(i) + jit) * seg);
+    float h = clamp((length(p) - Rp) / (Ra - Rp), 0.0, 1.0);
+    float dens = exp(-h * H) * seg;
+
+    // 该采样点是否被行星挡住阳光（决定晨昏线的位置）
+    vec2 toSun = raySphere(p, L, Rp);
+    float lit = (toSun.x < toSun.y && toSun.y > 0.0) ? 0.0 : 1.0;
+
+    // 阳光到达该点前穿过的大气厚度。越厚，蓝光被散射掉得越多，
+    // 剩下的就越红——日落的颜色由此自然产生，不需要手调。
+    vec2 sunExit = raySphere(p, L, Ra);
+    float sunDepth = exp(-h * H) * max(sunExit.y, 0.0) * 1.20;
+    vec3 sunCol = exp(-sunDepth * vec3(0.40, 1.00, 2.30));
+
+    acc += dens * lit * sunCol;
+  }
+
+  // 瑞利散射强度按 1/λ⁴，蓝端最强
+  vec3 rayleigh = vec3(0.30, 0.54, 1.00) * uTint;
+  vec3 col = acc * rayleigh * 3.4 * uDensity;
+
+  gl_FragColor = vec4(col * uFade, 1.0);
 }
+
 `;
 
 /* ── 云层 ────────────────────────────────────────────── */
@@ -589,18 +627,21 @@ export class PlanetStage {
   }
 
   _buildAtmo(){
-    const geo = new THREE.IcosahedronGeometry(1.085, 5);   // 贴着地表，别铺成大光晕
+    // 球壳只是积分的载体，本身不该被看见——半径必须覆盖大气外缘 Ra=1.55。
+    // 遮挡关系由着色器内的射线求交解决，故关闭深度测试。
+    const geo = new THREE.IcosahedronGeometry(1.17, 5);
     this.uAtmo = {
-      uColor:{value:new THREE.Color(0.28, 0.52, 0.98)},
-      uSunset:{value:new THREE.Color(1.00, 0.44, 0.18)},
-      uDensity:{value:0.85}, uLightDir:{value:this.lightDir},
-      uFoilX:{value:-1.9}, uShatter:{value:0}, uSpread:{value:1}
+      uLightDir:{value:this.lightDir},
+      uDensity:{value:0.85},
+      uFade:{value:1},
+      uTint:{value:new THREE.Color(1, 1, 1)}
     };
     this.atmo = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms:this.uAtmo, vertexShader:ATMO_VERT, fragmentShader:ATMO_FRAG,
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      side:THREE.BackSide
+      transparent:true, depthWrite:false, depthTest:false,
+      blending:THREE.AdditiveBlending, side:THREE.BackSide
     }));
+    this.atmo.renderOrder = 5;
     this.scene.add(this.atmo);
   }
 
@@ -656,13 +697,14 @@ export class PlanetStage {
     this.uPlanet.uCover.value = cover;
     this.uCloud.uTint.value = Math.min(1, Math.max(0, (tempK - 340) / 260));
 
-    this.uAtmo.uDensity.value = Math.min(2.4, Math.pow(pressureAtm / 1.2, 0.55) * 0.85);
+    this.uAtmo.uDensity.value = Math.min(2.2, Math.pow(pressureAtm / 1.2, 0.55) * 0.80);
+    // 高温大气偏橙（尘与硫），低温偏青白
     const hot = Math.min(1, Math.max(0, (tempK - 320) / 320));
     const cold = Math.min(1, Math.max(0, (250 - tempK) / 130));
-    this.uAtmo.uColor.value.setRGB(
-      0.28 + hot * 0.62 + cold * 0.30,
-      0.52 - hot * 0.20 + cold * 0.18,
-      0.98 - hot * 0.70 + cold * 0.02
+    this.uAtmo.uTint.value.setRGB(
+      1 + hot * 1.10 + cold * 0.15,
+      1 - hot * 0.22 + cold * 0.18,
+      1 - hot * 0.62 + cold * 0.10
     );
   }
 
@@ -680,9 +722,10 @@ export class PlanetStage {
 
   reset(){
     this.state = 'idle'; this.effectT = 0;
-    for(const u of [this.uPlanet, this.uCloud, this.uAtmo]){
+    for(const u of [this.uPlanet, this.uCloud]){
       u.uFoilX.value = -1.9; u.uShatter.value = 0; u.uSpread.value = 1;
     }
+    this.uAtmo.uFade.value = 1;
     this.uFoil.uOpacity.value = 0;
     this.foil.position.x = -1.9;
     this.uCore.uOpacity.value = 0;
@@ -709,7 +752,9 @@ export class PlanetStage {
       const t = Math.min(1, this.effectT);
       const e = t * t * (3 - 2 * t);
       const x = -1.9 + e * 3.8;
-      for(const u of [this.uPlanet, this.uCloud, this.uAtmo]) u.uFoilX.value = x;
+      for(const u of [this.uPlanet, this.uCloud]) u.uFoilX.value = x;
+      // 大气随压平进程整体淡出：二维空间里没有大气层
+      this.uAtmo.uFade.value = 1 - this._ss(0.0, 0.62, t);
       this.foil.position.x = x;
       this.uFoil.uOpacity.value = Math.sin(Math.min(1, t * 1.12) * Math.PI) * 0.78;
 
@@ -727,7 +772,8 @@ export class PlanetStage {
     else if(this.state === 'crush'){
       this.effectT += dt / 2.7;
       const t = Math.min(1, this.effectT);
-      for(const u of [this.uPlanet, this.uCloud, this.uAtmo]) u.uShatter.value = t;
+      for(const u of [this.uPlanet, this.uCloud]) u.uShatter.value = t;
+      this.uAtmo.uFade.value = 1 - this._ss(0.0, 0.26, t);
 
       // 内核必须等碎片开始分离才亮——提前亮就是在一颗完整球体前面糊一团白
       const op = this._ss(0.17, 0.30, t) * (1 - this._ss(0.34, 0.72, t)) * 0.82;
