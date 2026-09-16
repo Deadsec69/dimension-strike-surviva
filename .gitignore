@@ -1,5 +1,6 @@
 # 运行时二进制产物，由 fetch-assets.sh 拉取（约 18MB）
 models/*.task
+textures/
 vendor/wasm/
 
 __pycache__/
