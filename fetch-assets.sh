@@ -13,8 +13,12 @@ MP_VER="0.10.18"
 WASM_BASE="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm"
 MODEL_URL="https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task"
 
-get() {   # get <url> <目标路径> <期望的文件头魔数，可空>
-  local url="$1" out="$2" magic="${3:-}"
+# 文件头必须按十六进制比对：这两个文件的头部都含 null 字节，
+# 而 bash 的命令替换会静默吞掉 null，直接比原始字节永远不会相等。
+head_hex() { head -c "$1" "$2" | od -An -tx1 | tr -d ' \n'; }
+
+get() {   # get <url> <目标路径> <期望文件头的十六进制> <最小字节数>
+  local url="$1" out="$2" magic="${3:-}" minsize="${4:-0}"
   if [ -f "$out" ]; then
     echo "  已存在  $out ($(du -h "$out" | cut -f1))"
     return 0
@@ -22,19 +26,31 @@ get() {   # get <url> <目标路径> <期望的文件头魔数，可空>
   mkdir -p "$(dirname "$out")"
   echo "  下载中  $out"
   curl -fL --progress-bar -o "$out" "$url"
-  if [ -n "$magic" ] && [ "$(head -c ${#magic} "$out")" != "$magic" ]; then
-    echo "  文件头不符（期望 $magic），可能下到了错误页面，已删除" >&2
-    rm -f "$out"
-    return 1
+
+  local size
+  size=$(wc -c < "$out" | tr -d ' ')
+  if [ "$size" -lt "$minsize" ]; then
+    echo "  体积异常（${size}B，应不少于 ${minsize}B），疑似下到错误页面，已删除" >&2
+    rm -f "$out"; return 1
+  fi
+  if [ -n "$magic" ]; then
+    local got
+    got=$(head_hex $(( ${#magic} / 2 )) "$out")
+    if [ "$got" != "$magic" ]; then
+      echo "  文件头不符（读到 $got，期望 $magic），已删除" >&2
+      rm -f "$out"; return 1
+    fi
   fi
 }
 
 echo "MediaPipe WASM 运行时 v${MP_VER}"
-get "${WASM_BASE}/vision_wasm_internal.js"   vendor/wasm/vision_wasm_internal.js
-get "${WASM_BASE}/vision_wasm_internal.wasm" vendor/wasm/vision_wasm_internal.wasm $'\x00asm'
+get "${WASM_BASE}/vision_wasm_internal.js"   vendor/wasm/vision_wasm_internal.js   "" 100000
+# WASM 魔数 \0asm
+get "${WASM_BASE}/vision_wasm_internal.wasm" vendor/wasm/vision_wasm_internal.wasm 0061736d 5000000
 
 echo "手势识别模型"
-get "$MODEL_URL" models/gesture_recognizer.task PK   # .task 是 zip 包
+# .task 是 MediaPipe 的容器：两个 null 字节 + zip（"PK"），并非裸 zip
+get "$MODEL_URL" models/gesture_recognizer.task 0000504b 5000000
 
 echo
 echo "完成。运行：python serve.py 8123"
