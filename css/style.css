@@ -49,6 +49,12 @@ body{
   margin-top:5px; font-family:var(--mono); font-size:10px;
   letter-spacing:.2em; color:var(--ink-3);
 }
+.brand-credit{
+  margin-top:7px; font-family:var(--mono); font-size:9px;
+  letter-spacing:.06em; color:var(--ink-3); opacity:.72;
+}
+.brand-credit a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+.brand-credit a:hover{color:var(--cold)}
 
 /* ── 面板通用 ───────────────────────────── */
 .panel{
@@ -206,6 +212,7 @@ body{
   .brand{padding-bottom:8px}
   .brand-mark{font-size:16px; letter-spacing:.1em}
   .brand-sub{font-size:8.5px; margin-top:3px}
+  .brand-credit{font-size:8px; margin-top:4px}
 
   .panel{position:fixed; width:auto; transform:none; padding:10px 12px; gap:9px}
   .panel-title{padding-bottom:7px; font-size:10px}
