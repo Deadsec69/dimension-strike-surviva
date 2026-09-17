@@ -3,6 +3,9 @@ models/*.task
 textures/
 vendor/wasm/
 
+# 宣传 GIF 的采集帧与成品（tools/promo-gif，单次约 1GB）
+tools/promo-gif/out/
+
 __pycache__/
 .DS_Store
 Thumbs.db
