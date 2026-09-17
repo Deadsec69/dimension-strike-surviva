@@ -93,6 +93,7 @@ js/main.js          装配与主循环
 vendor/             Three.js（入 git）、MediaPipe 运行时（fetch-assets.sh 拉取）
 models/             手势模型（fetch-assets.sh 拉取）
 serve.py            开发服务器。补了 .mjs / .wasm 的 MIME，内置 http.server 不认
+tools/promo-gif/    公众号宣传 GIF：逐帧采集 → 叠 HUD 层 → 编码（见其 README，不随站点部署）
 ```
 
 ## 实现要点
