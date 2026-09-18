@@ -16,7 +16,7 @@ import { ShaderPass }       from '../vendor/jsm/postprocessing/ShaderPass.js';
 
 /* ── 噪声（仅熔融裂缝还需要） ─────────────────────────── */
 
-const NOISE = `
+export const NOISE = `
 vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
 vec4 mod289(vec4 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
 vec4 permute(vec4 x){ return mod289(((x*34.0)+1.0)*x); }
@@ -244,6 +244,9 @@ uniform float uShatter;
 uniform float uCover;        // 云量
 uniform float uWind;         // 纬向风累计位移，与云层共用
 uniform float uCrustT;       // 岩石圈温度：比冰盖更慢的一条通道
+uniform float uCharge;       // 引力蓄力 0..1：地壳先受应力，裂缝先亮
+uniform vec4  uImpacts[8];   // 撞击槽：xyz 去自转后的方向，w 年龄（秒，负 = 空）
+uniform float uImpactSize[8];
 uniform float uFire;         // 当前火灾强度（由热冲击驱动）
 uniform float uBurn;         // 累计过火面积
 uniform float uCoreGlow;     // 内核亮度，用于照亮碎片内侧
@@ -359,6 +362,33 @@ void main(){
                     shelf * (0.45 + 0.55 * nMid));
   base = mix(base, bed, water * dry);
 
+  // ── 撞击（生存模式）。一次循环算出三组遮罩：疤要在 base 进光照之前压进去，
+  // 热与冲击环要等 emissive 声明之后再加。方向按当前自转转回来（存的是去自转的方向，
+  // 见 planet.js 的 IMPACT_SGN 推导）：n0 不随贴图走，直接存世界方向光斑会从地面滑开。
+  float impScar = 0.0, impHot = 0.0, impRing = 0.0;
+  {
+    float sa = uSpinUV * 6.2831853;
+    float cs = cos(sa), sn = sin(sa);
+    for(int i = 0; i < 8; i++){
+      vec4 im = uImpacts[i];
+      if(im.w >= 0.0){                                        // 不用 continue：老驱动对它不友好
+        vec3  d   = vec3(im.x * cs - im.z * sn, im.y, im.x * sn + im.z * cs);   // rotY(im.xyz, sa)
+        float ang = sqrt(max(0.0, 2.0 - 2.0 * dot(n0, d)));  // 弦长 ≈ 角距，省一次 acos
+        float rc  = uImpactSize[i] * 0.9;                     // 坑的角半径 ≈ 石头半径（弧度）：r=0.12 的石头砸出约 6° 的坑
+        float age = im.w;
+        float a2  = ang + (nMid - 0.5) * rc * 0.7;            // 边缘用中频噪声啃碎：坑不是圆规画的
+        float spot = 1.0 - smoothstep(rc * 0.55, rc * 1.35, a2);
+        // 闪光（0.15s）+ 余温（2.5s）+ 暗红余烬（9s）：三个时标叠起来才像「砸下去然后凉掉」
+        impHot += spot * (1.6 * exp(-age / 0.15) + exp(-age / 2.5) + 0.35 * exp(-age / 9.0));
+        float rr = rc + age * 0.10;                           // 冲击环向外走、变宽、变淡：一秒内走完，别走成半个球的粉圈
+        impRing += (1.0 - smoothstep(0.0, 0.025 + age * 0.02, abs(a2 - rr))) * exp(-age / 0.6);
+        impScar = max(impScar, spot * exp(-age / 60.0));      // 疤一分钟里慢慢被尘埃盖掉
+      }
+    }
+  }
+  // 疤只留在陆地和干涸的海床上：水面会合拢
+  base = mix(base, vec3(0.050, 0.038, 0.032), impScar * 0.88 * (1.0 - water * (1.0 - dry)));
+
   // ── 熔融：裂缝先出现，再变宽，最后连成岩浆海
   float melt  = smoothstep(620.0, 900.0, uTempLag.w);
   float rn    = fbm3(n0 * 3.1);
@@ -386,7 +416,20 @@ void main(){
   fissure *= smoothstep(0.50, 0.86, nLow) * (1.0 - water * 0.62);
   emissive += vec3(1.00, 0.30, 0.05) * fissure * rift * 3.6;
 
+  // 引力蓄力：外力撕的是整片地壳，不分火山省，也不管有没有熔融——所以不并进 rift
+  // （那条被 (1-melt) 和分省遮罩卡着，并进去会只在几个省亮、熔融行星上干脆不亮）。
+  // 取平方：辉光在后半程才起来，而震动从一开始就在涨，两段递进。
+  // 这条脊线没有分省遮罩，比 rift 那条密得多，系数要压得远低于 3.6：1.2 时蓄满才刚过 bloom 阈值，
+  // 缝是亮线而不是白斑——取到 2.4 整片大陆都溢成白，把地表糊掉，那正是 README 里警告过的曝光。
+  float fissureAll = pow(clamp(1.0 - abs(rn) * 10.0, 0.0, 1.0), 3.0);
+  emissive += vec3(1.00, 0.30, 0.05) * fissureAll * (1.0 - water * 0.85) * uCharge * uCharge * 1.2;
+
   emissive += vec3(1.00, 0.34, 0.06) * fire * 3.0;
+
+  // 撞击辉光。系数 0.9：落地那半秒热斑刚过 bloom 阈值（闪一下），之后退成不溢出的暗红余温——
+  // 取 3.2 的话每个坑都是一整块白斑，把半颗星糊掉。冲击环压在阈值下，贴着地面走
+  emissive += vec3(1.00, 0.52, 0.20) * impHot  * 0.9 * (0.6 + 0.8 * nMid);
+  emissive += vec3(1.00, 0.36, 0.10) * impRing * 0.35;
 
   float wet = water * (1.0 - dry) * (1.0 - ice);    // 当前仍是液态水的部分
 
@@ -864,12 +907,36 @@ void main(){
 // 深度的归一化上限。星空在 42~56，会被夹到 1.0，因此天然落在焦外。
 const DEPTH_FAR = 20.0;
 
+/* ── 撞击（生存模式） ────────────────────────────────
+   八个槽位环形复用。方向按撞击时刻的 uSpinUV「去自转」后存入，着色器再按当前 uSpinUV 转回来：
+   n0 不随贴图走（自转是 UV 偏移），直接存世界方向的话光斑会从地面上滑开（0.055 rad/s，4 秒 12°）。
+   符号由 SphereGeometry 的 UV 走向决定：x = -cos(2πu)·sinθ, z = sin(2πu)·sinθ，贴图特征的世界方位
+   φ = 2π(u_t − uSpinUV)，而 WIND 里的 rotY(P(φ), a) = P(φ − a)，故存 rotY(dir, −2π·s0)、
+   着色器里 rotY(·, 2π·uSpinUV)，符号为正。实测法：往一条认得出的海岸线上砸一下，再拨动自转，
+   光斑必须还在那条海岸线上；符号反了会朝反方向滑开一倍的角度。 */
+const IMPACT_N = 8, IMPACT_LIFE = 60;
+
 const DEPTH_FRAG = `
 precision highp float;
 uniform float uFar;
 varying vec3 vPos;
 void main(){
   gl_FragColor = vec4(clamp(length(vPos - cameraPosition) / uFar, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+`;
+
+/* 外来对象（生存模式的陨石、护盾）的深度材质。它们只有平移/旋转/缩放（含实例矩阵），
+   没有形变，一套顶点着色器通吃。three 对 InstancedMesh 上的 ShaderMaterial 会自动定义
+   USE_INSTANCING 并声明 instanceMatrix。 */
+const DEPTH_XFORM_VERT = `
+varying vec3 vPos;
+void main(){
+  vec4 p = vec4(position, 1.0);
+  #ifdef USE_INSTANCING
+    p = instanceMatrix * p;
+  #endif
+  vPos = (modelMatrix * p).xyz;
+  gl_Position = projectionMatrix * viewMatrix * vec4(vPos, 1.0);
 }
 `;
 
@@ -1025,11 +1092,31 @@ const TILT_TAU  = 0.75;     // 倾角收得快些，否则会飘过头
 const TILT_MAX  = 1.02;     // 再高 up 与视轴就快平行了，lookAt 会退化
 const SPIN_BASE = 0.055;    // 基础自转角速度
 
+/* 松手速度取最近 90ms 的峰值。松手总是被晚检测到——手一张开追踪先掉、分类再变，
+   等到 release() 那一帧速度估计已经在往下掉。只在手还在动时用（当前速度 ≥ 峰值的
+   35%）：拖到一半停住再松开是「放下」不是「甩」，不该给它一记峰值。只管自转不管
+   倾角：倾角有硬上限且到顶清速，给它峰值就是顶到边界撞一下。 */
+const PEAK_WINDOW = 0.09;
+const PEAK_GATE   = 0.35;
+/* 速度按「距上一次输入的真实间隔」估计，不逐帧估计。30fps 的摄像头在 60Hz 的循环里
+   隔帧才有位移，逐帧估计看到的是 2 倍尖峰与零交替，稳态在 ±15% 里晃（144Hz 上
+   ±25%），松手落在哪一帧全凭运气。45ms 大于一个 30fps 周期与一个采集子步，
+   小于 15fps 的周期；鼠标每帧都有事件，行为与从前完全一致。 */
+const MOVE_GAP    = 0.045;
+/* 引力蓄力：握拳期间地壳先受应力。上升端轻微平滑抹掉 30fps 的台阶，中断后按 0.4s
+   回落，不会瞬间消失。震动峰值 0.18 定在挤压塌缩期（0.10→0.30）之下：发动那一刻
+   只增不减，读作 0.18→0.30→1.0 的递进；定高了会在发动那一帧先掉一截。 */
+const CHARGE_RISE   = 0.08;
+const CHARGE_TAU    = 0.40;
+const CHARGE_TRAUMA = 0.18;
+
 /* 观测者相对行星的倾角（弧度）。行星自转轴是世界 Y，若相机的 up 也取世界 Y，
    纬度带、自转方向、两极就全部与屏幕轴对齐——那会读成「一颗贴了滚动贴图的球」，
    而不是空间里一个有自己朝向的天体。给 up 一个倾角相当于给它一个黄赤交角
    （地球是 23.4°）。不动网格：「网格永不旋转」是二向箔的前提。 */
 const CAM_TILT = 0.34;
+
+const DPR_MAX = 1.5;   // 见 setQuality：全分辨率的 Retina 会把这条管线钉在 30fps
 
 /* 一维值噪声。镜头抖动的位移必须连续：逐帧随机数抖成的是高频噪点，
    噪声场抖出来的才是晃动。 */
@@ -1059,11 +1146,18 @@ export class PlanetStage {
     this.spinVel = 0;               // 甩出去的角速度，松手后按摩擦衰减
     this.tiltVel = 0;
     this.userEl = 0;                // 手动扳出来的倾角，会一直保持在那儿
+    this.inputT = 0;                // 操控时钟：累计 dt 而不是 performance.now()，采集脚本逐帧驱动时墙钟并不等距
+    this.quality = 1;               // 渲染缩放 0.5~1，乘在 DPR 上；主循环按帧时间自适应调（见 setQuality）
+    this.lastMoveT = 0;             // 上一次有位移输入的时刻
+    this.velLog = [];               // 最近 PEAK_WINDOW 内的角速度样本，松手时取峰值
+    this.charge = 0;                // 引力蓄力目标（手势模块给）
+    this.chargeK = 0;               // 实际显示的蓄力量，按时间常数跟随
 
     this.trauma = 0;           // 0..1，实际位移取其平方
     this.shakeT = 0;
     this.stop = 0;             // 命中停顿剩余时长，走真实时间
     this.fractured = false;
+    this.impactHead = 0;       // 撞击槽的环形写指针
 
     // 环境：tgt 是滑块要求的，cur 是各子系统实际达到的
     this.tgt = { temp:288, cover:0.5, ctint:0, density:0.85, tr:1, tg:1, tb:1 };
@@ -1233,6 +1327,45 @@ export class PlanetStage {
     this.depthHide = [this.clouds, this.atmo, this.foil, this.core, this.stars];
   }
 
+  /* ── 撞击：生存模式的陨石落地。dir 为世界方向（Vector3 或 {x,y,z}），size 为石头半径。 ── */
+  impact(dir, size){
+    const a = -this.uPlanet.uSpinUV.value * Math.PI * 2;      // 去自转，见 IMPACT_N 处的推导
+    const c = Math.cos(a), s = Math.sin(a);
+    const u = this.uPlanet.uImpacts.value, k = this.impactHead * 4;
+    u[k] = dir.x * c - dir.z * s; u[k + 1] = dir.y; u[k + 2] = dir.x * s + dir.z * c;   // rotY(dir, -spin)
+    u[k + 3] = 0;
+    this.uPlanet.uImpactSize.value[this.impactHead] = size;
+    this.impactHead = (this.impactHead + 1) % IMPACT_N;
+    // 0.33~0.45：在蓄力 0.18 与箔片 0.30 之上、断裂 1.0 之下
+    this.trauma = Math.max(this.trauma, 0.25 + size * 1.5);
+  }
+  // 走场景时间：命中停顿时光斑也该停
+  _ageImpacts(edt){
+    const u = this.uPlanet.uImpacts.value;
+    for(let i = 3; i < u.length; i += 4){
+      if(u[i] < 0) continue;
+      u[i] += edt;
+      if(u[i] > IMPACT_LIFE) u[i] = -1;
+    }
+  }
+
+  /* ── 外来对象的深度登记。深度图是整个场景照常渲一遍：不登记的网格会把自己的颜色写进
+     深度图，景深随之出错。不透明的走 trackDepth（换深度材质），叠加/透明的走 overlay（渲深度时藏起来）。 ── */
+  trackDepth(mesh, side = THREE.FrontSide){
+    if(this.depthMat.has(mesh)) return;
+    this.depthMat.set(mesh, new THREE.ShaderMaterial({
+      uniforms:{ uFar:{ value:DEPTH_FAR } },
+      vertexShader:DEPTH_XFORM_VERT, fragmentShader:DEPTH_FRAG, side
+    }));
+  }
+  overlay(obj){ if(!this.depthHide.includes(obj)) this.depthHide.push(obj); }
+  untrack(obj){
+    const m = this.depthMat.get(obj);
+    if(m){ m.dispose(); this.depthMat.delete(obj); }
+    const i = this.depthHide.indexOf(obj);
+    if(i >= 0) this.depthHide.splice(i, 1);
+  }
+
   _renderDepth(){
     const vis = this.depthHide.map(o => o.visible);
     this.depthHide.forEach(o => { o.visible = false; });
@@ -1334,11 +1467,14 @@ export class PlanetStage {
       uSpec:{value:this.tex.spec}, uCloudTex:{value:this.tex.clouds},
       uTempLag:{value:new THREE.Vector4(288, 288, 288, 288)},
       uPop:{value:1}, uSpinUV:{value:0}, uCover:{value:0.5}, uWind:{value:0},
-      uCrustT:{value:288}, uFire:{value:0}, uBurn:{value:0},
+      uCrustT:{value:288}, uFire:{value:0}, uBurn:{value:0}, uCharge:{value:0},
       uLightDir:{value:this.lightDir},
       uFoilX:{value:-1.9}, uShatter:{value:0}, uSpread:{value:1},
       uFracWin:{value:new THREE.Vector2(0.15, 0.09)}, uBurstK:{value:1.0},
-      uCoreGlow:{value:0}
+      uCoreGlow:{value:0},
+      // three 的 flatten() 对已是 TypedArray 的值原样透传：这两块缓冲原地改写，零拷贝
+      uImpacts:{value:new Float32Array(IMPACT_N * 4).fill(-1)},
+      uImpactSize:{value:new Float32Array(IMPACT_N)}
     };
     this.planet = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms:this.uPlanet, vertexShader:PLANET_VERT, fragmentShader:PLANET_FRAG,
@@ -1544,12 +1680,14 @@ export class PlanetStage {
   triggerFoil(){
     if(this.state !== 'idle') return false;
     this.state = 'foil'; this.effectT = 0;
+    this._dropGrab();
     return true;
   }
 
   triggerCrush(){
     if(this.state !== 'idle') return false;
     this.state = 'crush'; this.effectT = 0;
+    this._dropGrab();
     // 碎开之后才看得到断面。完整球体是闭合的，背面全被剔掉也无妨，
     // 始终开双面等于白付一倍的片元着色。
     this.planet.material.side = THREE.DoubleSide;
@@ -1558,9 +1696,14 @@ export class PlanetStage {
     return true;
   }
 
+  // 打击一开始就放开既有的抓取，不给峰值：打击进行中镜头归编排管，手上那点动量不该带进去。
+  _dropGrab(){ this.grabbed = false; this.velLog.length = 0; }
+
   reset(){
     this.state = 'idle'; this.effectT = 0;
     this.trauma = 0; this.stop = 0; this.fractured = false;
+    this.charge = this.chargeK = 0; this.uPlanet.uCharge.value = 0;
+    this.uPlanet.uImpacts.value.fill(-1); this.impactHead = 0;
     for(const u of [this.uPlanet, this.uCloud]){
       u.uFoilX.value = -1.9; u.uShatter.value = 0; u.uSpread.value = 1;
     }
@@ -1579,14 +1722,17 @@ export class PlanetStage {
     this.aimX = 0; this.aimY = 0; this.roll = CAM_TILT;
     this.grabbed = false; this.dragDX = this.dragDY = 0;
     this.spinVel = 0; this.tiltVel = 0; this.userEl = 0;
+    this.velLog.length = 0; this.lastMoveT = this.inputT;
     this._applyCam();
   }
 
   update(dt){
     const edt = this._timeScale(dt);   // 场景时间：命中停顿期间被压慢
     this._dampEnv(edt);
+    this._ageImpacts(edt);
 
     this._input(dt);                // 操控走真实时间：命中停顿不该让手感变黏
+    this._charge(dt);
     if(!this.grabbed) this.spin += edt * SPIN_BASE;
     const spinUV = this.spin / (Math.PI * 2);
     this.uPlanet.uSpinUV.value = spinUV;
@@ -1711,25 +1857,47 @@ export class PlanetStage {
     if(this.state !== 'idle') return false;   // 打击进行中，镜头归编排管
     this.grabbed = true;
     this.spinVel = 0; this.tiltVel = 0;       // 重新抓住＝抓停它
+    this.velLog.length = 0;
     return true;
   }
   dragBy(dx, dy){ if(this.grabbed){ this.dragDX += dx; this.dragDY += dy; } }
-  release(){ this.grabbed = false; }
+  release(){
+    if(!this.grabbed) return;
+    this.grabbed = false;
+    // 松手取最近一段的峰值，但只在手还在动时：停住再松开是「放下」，保持当前值。
+    let peak = this.spinVel;
+    for(const s of this.velLog) if(Math.abs(s.v) > Math.abs(peak)) peak = s.v;
+    if(Math.abs(this.spinVel) >= PEAK_GATE * Math.abs(peak)) this.spinVel = peak;
+    this.spinVel = Math.max(-SPIN_VMAX, Math.min(SPIN_VMAX, this.spinVel));
+    this.velLog.length = 0;
+  }
   // 人为附加的自转角速度（弧度/秒）。文明那边按时间积分它，得到「被拨动了多少弧度」。
   get spinAnomaly(){ return Math.abs(this.spinVel); }
+  // 引力蓄力目标 0..1。只在 idle 生效：打击一开始目标归零，辉光在塌缩底下淡出。
+  setCharge(k){ this.charge = clamp01(k); }
 
   _input(dt){
     const dx = this.dragDX, dy = this.dragDY;
     this.dragDX = this.dragDY = 0;
 
+    this.inputT += dt;
     if(this.grabbed){
       this.spin  -= dx * DRAG_SPIN;
       this.userEl = Math.max(-TILT_MAX, Math.min(TILT_MAX, this.userEl + dy * DRAG_TILT));
       // 速度估计要平滑。单帧差分噪声太大，直接拿去当初速，松手那下会一顿。
-      const inv = 1 / Math.max(dt, 1e-3);
-      this.spinVel = damp(this.spinVel, -dx * DRAG_SPIN * inv, 0.055, dt);
-      this.tiltVel = damp(this.tiltVel,  dy * DRAG_TILT * inv, 0.055, dt);
+      // 而且要按「距上一次输入的真实间隔」算：摄像头隔帧才有位移，逐帧算是尖峰与零交替。
+      if(dx !== 0 || dy !== 0){
+        const span = Math.max(this.inputT - this.lastMoveT, 1e-3);
+        this.lastMoveT = this.inputT;
+        this.spinVel = damp(this.spinVel, -dx * DRAG_SPIN / span, 0.055, span);
+        this.tiltVel = damp(this.tiltVel,  dy * DRAG_TILT / span, 0.055, span);
+      }else if(this.inputT - this.lastMoveT > MOVE_GAP){   // 输入真的停了（鼠标静止）
+        this.spinVel = damp(this.spinVel, 0, 0.055, dt);
+        this.tiltVel = damp(this.tiltVel, 0, 0.055, dt);
+      }
       this.spinVel = Math.max(-SPIN_VMAX, Math.min(SPIN_VMAX, this.spinVel));
+      this.velLog.push({ t:this.inputT, v:this.spinVel });
+      while(this.velLog.length && this.velLog[0].t < this.inputT - PEAK_WINDOW) this.velLog.shift();
     }else{
       this.spin  += dt * this.spinVel;
       this.userEl = Math.max(-TILT_MAX, Math.min(TILT_MAX, this.userEl + dt * this.tiltVel));
@@ -1738,6 +1906,16 @@ export class PlanetStage {
       // 扳到极限还留着动量的话，松手后会一直贴着边界抖
       if(Math.abs(this.userEl) >= TILT_MAX - 1e-4) this.tiltVel = 0;
     }
+  }
+
+  // 引力蓄力的表现：地壳裂缝随 uCharge 亮起、镜头随之微震。走真实时间，只在 idle 生效；
+  // 发动之后挤压时间线自己接管 trauma（两边都取 max，所以只增不减），uCharge 在塌缩底下淡出。
+  _charge(dt){
+    const tgt = this.state === 'idle' ? this.charge : 0;
+    this.chargeK = damp(this.chargeK, tgt, tgt > this.chargeK ? CHARGE_RISE : CHARGE_TAU, dt);
+    if(this.chargeK < 1e-3) this.chargeK = 0;
+    this.uPlanet.uCharge.value = this.chargeK;
+    if(this.state === 'idle') this.trauma = Math.max(this.trauma, this.chargeK * CHARGE_TRAUMA);
   }
 
   // 命中停顿。先几乎冻住，再放回，返回缩放后的时间步。
@@ -1774,10 +1952,19 @@ export class PlanetStage {
     if(this.onEffectEnd) this.onEffectEnd(was);
   }
 
+  /* 渲染缩放。行星着色器每帧要跑两遍（颜色 + 自渲的深度图），再加 16 采样景深与五层 bloom——
+     Retina 上 DPR 2 是 3024×1424，4M 像素把 M 系列芯片也钉在 30fps。DPR 封顶 1.5，再按帧时间自适应。 */
+  setQuality(q){
+    q = Math.max(0.5, Math.min(1, q));
+    if(Math.abs(q - this.quality) < 1e-3) return;
+    this.quality = q;
+    this.resize();
+  }
+
   resize(){
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio, 2);
+    const dpr = Math.min(window.devicePixelRatio, DPR_MAX) * this.quality;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     if(this.composer){

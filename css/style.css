@@ -204,6 +204,97 @@ body{
   text-shadow:0 2px 24px rgba(0,0,0,.95);
 }
 
+/* ── 生存模式 ──────────────────────────────────────────── */
+/* 准星。z=2：压在画布与暗角之上、面板之下。位置与进度由 survival.js 直接写，
+   不做 transition——One-Euro 已经滤过，再加过渡就是双重延迟。圆 = 指向射击，矩形 = 护盾（跟盾的形状）。 */
+.aim{
+  position:fixed; z-index:2; left:0; top:0; width:64px; height:64px; margin:-32px 0 0 -32px;
+  pointer-events:none; display:none; will-change:transform; --k:0; --aim-c:var(--cold);
+}
+.aim.is-point{display:block; --aim-c:var(--cold)}                 /* 瞄准：观测者的冷蓝 */
+.aim.is-shield{display:block; --aim-c:var(--amber); width:68px; height:46px; margin:-23px 0 0 -34px}   /* 护盾：给他们的东西，琥珀 */
+.aim::before{content:""; position:absolute; inset:0; border-radius:50%; border:1px solid var(--aim-c); opacity:.5}
+.aim.is-shield::before{border-radius:4px}
+.aim::after{                                                      /* 停留进度：圆锥渐变只留 3px 一圈 */
+  content:""; position:absolute; inset:-2px; border-radius:50%;
+  background:conic-gradient(var(--aim-c) calc(var(--k) * 360deg), transparent 0);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+          mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+}
+.aim.is-shield::after{                                            /* 矩形不走圆环：进度是底边上的一条线 */
+  inset:auto 0 -7px 0; height:2px; border-radius:1px; -webkit-mask:none; mask:none;
+  background:linear-gradient(90deg, var(--aim-c) calc(var(--k) * 100%), transparent 0)}
+.aim.is-lock::before{opacity:1; box-shadow:0 0 12px rgba(111,168,214,.55)}
+.aim i{position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; background:var(--aim-c); box-shadow:0 0 8px var(--aim-c)}
+
+/* 生存模式只在摄像头开着时存在：没有手就没有准星 */
+/* 观测者代号：只在摄像头开着时出现（同 #survivalBtn），一局进行中锁住 */
+#userName{display:none}
+.cam.is-live #userName{display:block}
+.cam-name{width:100%; padding:6px 10px; margin-top:6px; font:10px var(--mono); letter-spacing:.12em; color:var(--ink);
+  background:transparent; border:1px solid var(--line-2); outline:0; box-sizing:border-box}
+.cam-name:focus{border-color:var(--cold)}
+.cam-name::placeholder{color:var(--ink-3)}
+body.is-survive .cam-name{opacity:.55; pointer-events:none}
+#survivalBtn:disabled{opacity:.35; cursor:not-allowed}
+
+/* 画像：判词上方一块方形。档位只改边框与光晕；降级（原片）时再叠一层同色调 */
+.portrait{display:none; position:relative; width:336px; height:189px; max-width:80vw; overflow:hidden;   /* 16:9：画像是横幅 */
+  border:1px solid var(--line-2); background:var(--void-2); pointer-events:auto; --tint:transparent}
+.verdict.is-on .portrait.is-on{display:block}
+.portrait img{display:block; width:100%; height:100%; object-fit:cover}
+.portrait.is-raw::after,.portrait.is-wait::after{content:""; position:absolute; inset:0; background:var(--tint); mix-blend-mode:color; pointer-events:none}
+.portrait.is-devil{--tint:rgba(217,85,63,.85); border-color:var(--alert); box-shadow:0 0 32px rgba(217,85,63,.35)}
+.portrait.is-god{--tint:rgba(232,176,75,.75); border-color:var(--amber); box-shadow:0 0 32px rgba(232,176,75,.35)}
+.portrait.is-human{--tint:rgba(111,168,214,.35); border-color:var(--cold-dim)}
+.portrait-wait{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+  font:10px var(--mono); letter-spacing:.24em; color:var(--ink); text-shadow:0 0 8px #000; animation:heatPulse 1.2s ease-in-out infinite; z-index:1}
+.portrait.is-wait .portrait-wait{display:flex}
+.portrait.is-wait img{opacity:.55}
+.portrait.is-none img{display:none}
+.portrait-meta{font-family:var(--mono); font-size:10px; letter-spacing:.22em; color:var(--ink-3); min-height:1.4em}
+.portrait-meta .tier{font-weight:600; letter-spacing:.24em}
+.tier.is-devil,.tag.is-devil{color:var(--alert)} .tier.is-god,.tag.is-god{color:var(--amber)} .tier.is-human,.tag.is-human{color:var(--cold)}
+
+/* 观测者榜：只在生存模式且服务器在线（或本局已有本地行）时出现 */
+#boardTitle,#board{display:none}
+body.is-survive.has-board #boardTitle{display:flex}
+body.is-survive.has-board #board{display:flex}
+body.is-survive.has-board .log{max-height:min(16vh,120px)}         /* 给榜让位：右面板是居中定位的 */
+.board{list-style:none; margin:0; padding:0; flex-direction:column; gap:5px; max-height:min(24vh,210px); overflow-y:auto; scrollbar-width:thin}
+.board li{display:grid; grid-template-columns:16px 44px 1fr auto auto; align-items:center; gap:7px;
+  font-family:var(--mono); font-size:11px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+.board .rank{font-size:9px; color:var(--ink-3)}
+.board .thumb{display:block; width:44px; height:25px; overflow:hidden; border:1px solid var(--line); background:var(--void-2); pointer-events:auto}   /* 16:9 缩略图 */
+.board .tag{font-size:8px; letter-spacing:.14em}
+.board .thumb img{display:block; width:100%; height:100%; object-fit:cover}
+.board .thumb.is-devil{border-color:var(--alert)} .board .thumb.is-god{border-color:var(--amber)}
+.board .thumb.is-pending{animation:heatPulse 1.2s ease-in-out infinite}   /* 画像还在生成 */
+.board .name{font-family:var(--cjk); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.board .score{color:var(--cold)}
+.board li.is-me{color:var(--ink)} .board li.is-me .name{color:var(--amber-live)}
+.board li.is-local{opacity:.6}                                     /* 服务器不在：这一行只活在本页 */
+
+#survivalBtn,#survHint{display:none}
+.cam.is-live #survivalBtn{display:block}
+body.is-survive #survivalBtn{border-color:var(--alert); color:var(--ink)}
+body.is-survive .cam.is-live #survHint{display:block}
+.cam-note{font-size:9px; line-height:1.7; color:var(--ink-3); text-align:center; margin-top:6px}
+
+#survTitle,#survOut{display:none}
+body.is-survive #survTitle{display:flex}
+body.is-survive #survOut{display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px 10px}   /* 3×2：右面板是居中定位的，矮视口上多几行会溢出 */
+#survScore{color:var(--cold)}                        /* 得分是观测者的数字，冷蓝 */
+
+/* 环境由撞击驱动，滑块退成仪表；打击按钮同样退成图例——握拳 / 摊掌仍会发动
+   （按钮上写着的正是这两个手势），所以不能用 disabled：.btn-strike:disabled 的 30% 是「已打出」。 */
+body.is-survive .ctl input[type=range],
+body.is-survive .btn-strike{pointer-events:none; opacity:.55}
+body.is-survive .panel-left .panel-tag{color:var(--alert)}
+.ctl-val.is-hot{color:var(--alert); text-shadow:0 0 12px rgba(217,85,63,.55)}      /* 再挨两下 */
+.ctl-val.is-critical{animation:heatPulse .9s ease-in-out infinite}                 /* 再挨一下 */
+@keyframes heatPulse{50%{opacity:.45}}
+
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important; transition-duration:.01ms!important}
 }

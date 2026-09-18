@@ -150,6 +150,10 @@ export class Civilization {
   }
 
   /** 取出待播报的消息并清空队列 */
+  /** 外部模块（生存模式）的播报入口。同一 id 每个样本只播一次；冷却期内会被丢弃，
+      返回「是否已播出」供调用方下一帧重试。 */
+  say(id, text, tone){ this._say(id, text, tone); return this.fired.has(id); }
+
   drain(){ const q = this.queue; this.queue = []; return q; }
 
   get popText(){
