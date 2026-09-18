@@ -11,7 +11,6 @@ Thumbs.db
 # 生存结算的密钥：只在本机 .env，永不入库
 .env
 
-# 屏幕录像等大文件不入库（GitHub 单文件上限 100MB）
+# 原始屏幕录像不入库（GitHub 单文件上限 100MB）；压缩后的演示视频放 docs/
 *.mov
-*.mp4
 *.webm
