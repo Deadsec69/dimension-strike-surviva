@@ -1,6 +1,7 @@
 // 降维打击模拟器 —— 装配
 import { PlanetStage } from './planet.js';
 import { Civilization } from './civ.js';
+import { Board } from './board.js';
 // gesture.js 走动态 import：它会拖进 11MB 的 MediaPipe 运行时和 8MB 模型，
 // 而绝大多数访客从不开摄像头。等点了「开启摄像头」再加载。
 
@@ -13,12 +14,16 @@ const el = {
   crush:$('crush'), foil:$('foil'), flash:$('flash'),
   verdict:$('verdict'), verdictText:$('verdictText'),
   cam:$('cam'), camBtn:$('camBtn'), video:$('video'), hand:$('hand'), gestState:$('gestState'),
-  again:$('again'), specId:$('specId'), specTag:$('specTag')
+  again:$('again'), specId:$('specId'), specTag:$('specTag'),
+  envTag:$('envTag'), survivalBtn:$('survivalBtn'),
+  survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'),
+  userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board')
 };
 
 const stage = new PlanetStage(el.stage);
 const civ = new Civilization();
-window.__ds = { stage, civ };   // 调试用句柄
+const board = new Board(el);    // 生存结算：抓拍、画像、观测者榜
+window.__ds = { stage, civ, board };   // 调试用句柄
 
 /* ── 气压：对数刻度。滑块 0..100 → 0.01..100 atm，50 处正好 1 atm ── */
 const toPressure = v => Math.pow(10, (v - 50) / 25);
@@ -36,6 +41,17 @@ function readControls(){
 el.temp.addEventListener('input', readControls);
 el.pres.addEventListener('input', readControls);
 readControls();
+// 生存模式：环境由撞击驱动，滑块退成仪表——把它们推到对应位置，读数照旧写。模块变量 T/P 不动，退出时 readControls() 一键交还。
+let envTxt = '';
+function writeEnv(t, p){
+  const txt = `${Math.round(t)}|${fmtPressure(p)}`;
+  if(txt === envTxt) return;
+  envTxt = txt;
+  el.tempOut.innerHTML = `${Math.round(t)}<i>K</i>`;
+  el.presOut.innerHTML = `${fmtPressure(p)}<i>atm</i>`;
+  el.temp.value = Math.round(t);
+  el.pres.value = 50 + 25 * Math.log10(p);
+}
 
 /* ── 琥珀抽干：文明消亡时，界面上代表「他们」的颜色向死灰收敛 ── */
 const AMBER = [232, 176, 75], DEAD = [90, 103, 115];
@@ -75,12 +91,21 @@ function statusOf(){
 
 /* ── 打击 ── */
 function fire(kind){
-  if(civ.struck) return;
+  if(civ.struck) return false;
   const ok = kind === 'foil' ? stage.triggerFoil() : stage.triggerCrush();
-  if(!ok) return;
+  if(!ok) return false;
   civ.strike(kind);
   el.crush.disabled = el.foil.disabled = true;
+  if(survivalOn){
+    // 热死那条路已先标了 'heat'；其余到这里的都是手势按下的武器 = 自己收手
+    survival.finish(endCause || 'self'); endCause = null;
+    // 抓拍必须在此刻：判词要等 2.7 秒碎裂动画，那时脸上的反应已经散了
+    board.endRun({ ending:survival.ending, snapshot:board.capture(el.video),
+                   score:survival.score, kills:survival.kills, elapsed:survival.elapsed });
+  }
+  return true;
 }
+window.__ds.fire = fire;   // 测试句柄：无摄像头时模拟手势武器
 
 // 闪光挂在断裂那一帧上，不能按秒数预定：命中停顿会把场景时间拉长，
 // 写死的延时必然和画面错开。
@@ -93,28 +118,38 @@ stage.onShock = () => {
 
 function showVerdict(){
   if(el.verdict.classList.contains('is-on')) return;
-  el.verdictText.textContent = civ.verdict();
+  el.verdictText.textContent = civ.verdict() + (survivalOn ? '\n' + survival.verdictLine() : '');
   el.verdict.classList.add('is-on');
   el.verdict.setAttribute('aria-hidden', 'false');
+  board.showVerdict();
+  // 判词期间摄像头只认击掌；先打断手上可能还握着的蓄力
+  gesture?.interrupt();
+  gesture?.setClapMode(true);
 }
 stage.onEffectEnd = showVerdict;
 
 /* ── 重玩：换下一个样本 ──
    编号只往上走，其余一律不变——对观测者而言它们本来就是可互换的。
    这比「重新开始」更贴这个设定：你不是在重来，你是在处理下一个。 */
-function newSpecimen(){
-  civ.nextSpecimen();
+/* 场景复位：newSpecimen 与 #reset 共用。next 决定是换编号还是原样本清零。 */
+function resetScene({ next }){
+  gesture?.interrupt();          // 拳头多半还握着：不打断，0.3 秒后就砸在新样本上
+  gesture?.setClapMode(false);   // 放在 stage.reset() 前面：切换识别器那一下卡顿落在复位帧上
+  next ? civ.nextSpecimen() : civ.reset();
   stage.reset();
   year = 0; shownAmber = -1;
   el.log.replaceChildren();
   el.crush.disabled = el.foil.disabled = false;
+  board.clear();
   el.verdict.classList.remove('is-on');
   el.verdict.setAttribute('aria-hidden', 'true');
   el.specId.textContent = civ.idText;
   el.specTag.textContent = civ.tag;
   el.temp.value = 288; el.pres.value = 50;
-  readControls();
+  readControls(); envTxt = '';
+  if(survivalOn){ survival.start(); board.probe(); }   // 生存模式下换样本 = 新的一局；滑块保持仪表状态；顺带刷榜
 }
+function newSpecimen(){ resetScene({ next:true }); }
 el.again.addEventListener('click', newSpecimen);
 
 el.crush.addEventListener('click', () => fire('crush'));
@@ -148,20 +183,15 @@ const endDrag = ev => {
 el.stage.addEventListener('pointerup', endDrag);
 el.stage.addEventListener('pointercancel', endDrag);
 
-/* ── 复位 ── */
-el.reset.addEventListener('click', () => {
-  el.temp.value = 288; el.pres.value = 50;
-  readControls();
-  civ.reset(); stage.reset();
-  year = 0; shownAmber = -1;
-  el.log.replaceChildren();
-  el.crush.disabled = el.foil.disabled = false;
-  el.verdict.classList.remove('is-on');
-  el.verdict.setAttribute('aria-hidden', 'true');
-});
+/* ── 复位（生存模式下 = 重新开始这一局） ── */
+el.reset.addEventListener('click', () => resetScene({ next:false }));
 
 /* ── 手势 ── */
-const setGestState = (txt, cls) => {
+// 手势模块每个摄像头帧都会来一次，文本多半没变，别每帧写 DOM
+let gestTxt = '', gestCls = '';
+const setGestState = (txt, cls = '') => {
+  if(txt === gestTxt && cls === gestCls) return;
+  gestTxt = txt; gestCls = cls;
   el.gestState.textContent = txt;
   el.gestState.className = 'cam-state' + (cls ? ` is-${cls}` : '');
 };
@@ -174,7 +204,17 @@ async function ensureGesture(){
   gesture = new GestureInput({
     video: el.video,
     canvas: el.hand,
-    onGesture: g => fire(g === 'fist' ? 'crush' : 'foil'),
+    // 指针优先也管武器：真有人在拖的时候，握拳不该在他手底下把星球压碎
+    canFire: () => !civ.struck && stage.state === 'idle' && dragId === null,
+    onGesture: g => {
+      // 击掌只在判词期间有意义；识别器也只在那时跟两只手，这里再拦一道
+      if(g === 'clap'){ if(el.verdict.classList.contains('is-on')) newSpecimen(); return true; }
+      return fire(g === 'fist' ? 'crush' : 'foil');
+    },
+    // 蓄力只给引力挤压：二维武器没有「正在积蓄」这回事，二向箔只在状态标签上走百分比
+    onCharge: (kind, k) => stage.setCharge(kind === 'fist' ? k : 0),
+    // 准星：gesture.js 已做镜像与增益，这里只是传给生存模块
+    onAim: (x, y, pose) => { if(survivalOn) x == null ? survival.aim(null) : survival.aim(x, y, pose); },
     onState: setGestState,
     // 手势拨动走和鼠标完全相同的那条通路，惯性、封顶、打击期禁用一并继承。
     // 指针优先：真有人在拖的时候，别让摄像头和他抢同一颗星球。
@@ -185,12 +225,14 @@ async function ensureGesture(){
       else stage.release();
     }
   });
+  window.__ds.gesture = gesture;   // 调试句柄；capture.js 只读 stage / civ
   return gesture;
 }
 
 let camOn = false;
 el.camBtn.addEventListener('click', async () => {
   if(camOn){
+    exitSurvival();                  // 没有手就没有准星：关摄像头即退出生存
     gesture?.stop(); camOn = false;
     el.cam.classList.remove('is-live');
     el.camBtn.textContent = '开启摄像头';
@@ -198,7 +240,10 @@ el.camBtn.addEventListener('click', async () => {
   }
   el.camBtn.disabled = true;
   try{
-    await (await ensureGesture()).start();
+    const g = await ensureGesture();
+    g.setClapMode(el.verdict.classList.contains('is-on'));   // 判词已经在了就直接进双手模式
+    g.setMode(survivalOn ? 'survive' : 'observe');
+    await g.start();
     camOn = true;
     el.cam.classList.add('is-live');
     el.camBtn.textContent = '关闭摄像头';
@@ -211,17 +256,113 @@ el.camBtn.addEventListener('click', async () => {
   }
 });
 
+/* ── 生存模式 ──
+   只认摄像头：射击的成本是「把手停住 0.3 秒」，鼠标上这是零成本，难度来自手。
+   环境由撞击与护盾驱动，滑块退成仪表；文明照常演化，他们的读数就是你的计分板。 */
+let survival = null, survivalOn = false, endCause = null;
+async function ensureSurvival(){
+  if(survival) return survival;
+  const { Survival } = await import('./survival.js');
+  // 温度到顶 = 既有的引力挤压；先标 'heat'，fire() 里的 finish 才知道这不是你按的
+  survival = new Survival({ stage, civ, onCrush: () => { endCause = 'heat'; fire('crush'); } });
+  window.__ds.survival = survival;
+  return survival;
+}
+async function enterSurvival(force = false){
+  if(survivalOn || (!camOn && !force)) return;    // force 只给无头测试用
+  el.survivalBtn.disabled = true;
+  try{
+    await ensureSurvival();
+    if(!camOn && !force) return;                  // 等 import 的时候摄像头被关了
+    survivalOn = true;
+    document.body.classList.add('is-survive');
+    board.probe();                                // 本地服务器在不在：在就拉榜
+    el.survivalBtn.textContent = '退出生存';
+    el.reset.textContent = '重新开始';
+    el.envTag.textContent = 'IMPACT';
+    // 判词还在：这颗已经没了，换下一个；否则原样本清零——它还没被消耗
+    resetScene({ next: el.verdict.classList.contains('is-on') });   // 里面会 survival.start()
+    gesture?.setMode('survive');
+  }finally{ syncSurvivalBtn(); }
+}
+function exitSurvival(){
+  if(!survivalOn) return;
+  survivalOn = false;
+  survival.stop();                              // 清场：小行星、护盾、准星
+  board.clear();
+  gesture?.setMode('observe');
+  document.body.classList.remove('is-survive');
+  el.survivalBtn.textContent = '开始生存';
+  el.reset.textContent = '恢复初始参数';
+  el.envTag.textContent = 'ENV';
+  el.tempOut.classList.remove('is-hot', 'is-critical');
+  el.temp.value = 288; el.pres.value = 50;
+  readControls(); envTxt = '';                  // 交互权交回滑块；文明与舞台不复位，行星自己凉下来
+}
+el.survivalBtn.addEventListener('click', () => survivalOn ? exitSurvival() : enterSurvival());
+// 观测者代号：开局前必填，记住上一次的
+el.userName.value = localStorage.getItem('ds.username') || '';
+const syncSurvivalBtn = () => { el.survivalBtn.disabled = !survivalOn && !el.userName.value.trim(); };
+el.userName.addEventListener('input', () => { localStorage.setItem('ds.username', el.userName.value.trim()); syncSurvivalBtn(); });
+syncSurvivalBtn();
+window.__ds.enterSurvival = enterSurvival; window.__ds.exitSurvival = exitSurvival;
+
+let survTxt = '';
+function writeSurv(){
+  const txt = `${survival.elapsed.toFixed(1)}|${survival.kills}|${survival.blocks}|${survival.shields}|${survival.score}`;
+  if(txt === survTxt) return;
+  survTxt = txt;
+  el.survTime.textContent = survival.elapsed.toFixed(1) + ' s';
+  el.survKills.textContent = survival.kills;
+  el.survBlocks.textContent = survival.blocks;
+  el.survShields.textContent = survival.shields;
+  el.survScore.textContent = survival.score.toLocaleString('en-US');
+}
+
+/* ── 画质自适应：按真实帧间隔的均值升降渲染缩放。行星管线是 GPU 密集型的，
+   Retina 全分辨率会钉在 30fps；降到 DPR 1.0 少掉四分之三的片元，观感几乎不变。 ── */
+const Q_STEPS = [1, 0.83, 0.67];        // DPR 1.5 → 1.25 → 1.0
+let qIdx = 0, fEma = 16.7, qSlow = 0, qFast = 0, qHold = 0;
+function adaptQuality(rawMs){
+  fEma += (rawMs - fEma) * 0.08;
+  if(document.hidden){ qSlow = qFast = 0; return; }
+  if(qHold > 0){ qHold -= rawMs; return; }
+  if(fEma > 22){ qSlow += rawMs; qFast = 0; }
+  else if(fEma < 13){ qFast += rawMs; qSlow = 0; }
+  else { qSlow = qFast = 0; }
+  let next = qIdx;
+  if(qSlow > 1200 && qIdx < Q_STEPS.length - 1) next = qIdx + 1;
+  else if(qFast > 6000 && qIdx > 0) next = qIdx - 1;
+  if(next !== qIdx){
+    qIdx = next; qSlow = qFast = 0; qHold = 2000;
+    stage.setQuality(Q_STEPS[qIdx]);
+    console.log(`[画质] ×${Q_STEPS[qIdx]}（帧 ${fEma.toFixed(1)}ms）`);
+  }
+}
+window.__ds.quality = () => ({ scale: Q_STEPS[qIdx], frameMs: +fEma.toFixed(1), pixelRatio: stage.renderer.getPixelRatio() });
+
 /* ── 主循环 ── */
 let last = performance.now();
 function frame(now){
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawMs = now - last;
+  const dt = Math.min(0.05, rawMs / 1000);
   last = now;
+  adaptQuality(rawMs);
 
   if(!civ.struck) year += dt * 47;     // 你拖一秒，他们过四十七年
 
-  civ.update(dt, T, P, stage.spinAnomaly);
-  stage.setEnv(T, P, civ.pop);
+  let envT = T, envP = P;
+  if(survivalOn){
+    survival.update(dt);               // 先推进：这一帧的撞击要在文明与舞台看到之前落地
+    envT = survival.T; envP = survival.P;
+    writeEnv(envT, envP);
+    el.tempOut.classList.toggle('is-hot', envT >= 560);        // 再挨两下
+    el.tempOut.classList.toggle('is-critical', envT >= 610);   // 再挨一下
+    writeSurv();
+  }
+  civ.update(dt, envT, envP, stage.spinAnomaly);
+  stage.setEnv(envT, envP, civ.pop);
   stage.update(dt);
 
   el.pop.textContent = civ.popText;
@@ -239,8 +380,12 @@ function frame(now){
   for(const m of civ.drain()) pushLog(m);
 
   // 不动手也能把他们耗光。那条路径原先没有结局也没有出口，只剩一颗空行星。
-  if(civ.dead && !civ.struck) showVerdict();
+  // 生存模式里文明沉默只是中途的一件事（约 391K 就没了，离 640K 的极限还远），不是结局。
+  if(civ.dead && !civ.struck && !survivalOn) showVerdict();
 }
 requestAnimationFrame(frame);
 
-addEventListener('resize', () => stage.resize());
+addEventListener('resize', () => {
+  stage.resize();
+  if(survivalOn && innerWidth <= 900) exitSurvival();   // 窄屏下摄像头面板隐藏，退出按钮随之消失
+});

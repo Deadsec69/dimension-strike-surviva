@@ -10,6 +10,7 @@
 
 <canvas id="stage"></canvas>
 <div id="vignette"></div>
+<div id="aim" class="aim" aria-hidden="true"><i></i></div>
 
 <header class="brand">
   <div class="brand-mark">降维打击模拟器</div>
@@ -18,7 +19,7 @@
 </header>
 
 <section class="panel panel-left" aria-label="环境参数">
-  <h2 class="panel-title">环境参数<span class="panel-tag">ENV</span></h2>
+  <h2 class="panel-title">环境参数<span class="panel-tag" id="envTag">ENV</span></h2>
 
   <div class="ctl">
     <label for="temp">表面均温</label>
@@ -53,6 +54,18 @@
 
   <div class="bar" role="img" aria-label="宜居指数"><div id="habBar" class="bar-fill"></div></div>
 
+  <h3 id="survTitle" class="log-title">生存记录<span class="log-src">SURVIVAL</span></h3>
+  <dl id="survOut" class="readout readout-surv" aria-label="生存记录">
+    <div><dt>坚持</dt><dd id="survTime" class="num">0.0 s</dd></div>
+    <div><dt>击落</dt><dd id="survKills" class="num">0</dd></div>
+    <div><dt>拦截</dt><dd id="survBlocks" class="num">0</dd></div>
+    <div><dt>护盾</dt><dd id="survShields" class="num">0</dd></div>
+    <div><dt>得分</dt><dd id="survScore" class="num">0</dd></div>
+  </dl>
+
+  <h3 id="boardTitle" class="log-title">观测者榜<span class="log-src">RUNS</span></h3>
+  <ol id="board" class="board" aria-label="观测者榜"></ol>
+
   <h3 class="log-title">通讯记录<span class="log-src">1420 MHz</span></h3>
   <ul id="log" class="log"></ul>
 </section>
@@ -78,15 +91,23 @@
   <div class="cam-body">
     <video id="video" playsinline muted></video>
     <canvas id="hand"></canvas>
-    <div id="camHint" class="cam-hint">开启摄像头后<br>握拳或摊开手掌即可发动<br>其余手势可拨动星球</div>
+    <div id="camHint" class="cam-hint">开启摄像头后<br>握拳 / 摊掌并稳住即可发动<br>其余手势可拨动星球<br>开启后可进入生存模式</div>
   </div>
   <button id="camBtn" class="btn btn-ghost btn-sm" type="button">开启摄像头</button>
+  <input id="userName" class="cam-name" type="text" maxlength="16" autocomplete="off" spellcheck="false"
+         placeholder="观测者代号" aria-label="观测者代号">
+  <button id="survivalBtn" class="btn btn-ghost btn-sm" type="button">开始生存</button>
+  <div id="survHint" class="cam-note">竖起食指指到即射击 · 每颗 5 分<br>✌️ 停住 0.45 s 布下护盾 · 拦下 2 分<br>握拳 / 摊掌收手 +20，烧穿归零</div>
 </section>
 
 <div id="flash" class="flash" aria-hidden="true"></div>
 <div id="verdict" class="verdict" aria-hidden="true">
   <div class="verdict-box">
+    <a id="portrait" class="portrait" target="_blank" rel="noopener" aria-label="打开观测者画像">
+      <img id="portraitImg" alt="观测者画像"><span class="portrait-wait">生成画像…</span>
+    </a>
     <p id="verdictText"></p>
+    <div id="portraitMeta" class="portrait-meta"></div>
     <button id="again" class="btn btn-ghost" type="button">下一个样本</button>
   </div>
 </div>

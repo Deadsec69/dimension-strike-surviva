@@ -1,7 +1,5 @@
-# 运行时二进制产物，由 fetch-assets.sh 拉取（约 18MB）
-models/*.task
-textures/
-vendor/wasm/
+# 本仓库（dimension-strike-survival）把运行时二进制（models/ textures/ vendor/wasm/）与 runs/ 一并入库；
+# fetch-assets.sh 仍可用（幂等，已存在就跳过）。只有密钥不进仓库。
 
 # 宣传 GIF 的采集帧与成品（tools/promo-gif，单次约 1GB）
 tools/promo-gif/out/
@@ -9,3 +7,11 @@ tools/promo-gif/out/
 __pycache__/
 .DS_Store
 Thumbs.db
+
+# 生存结算的密钥：只在本机 .env，永不入库
+.env
+
+# 屏幕录像等大文件不入库（GitHub 单文件上限 100MB）
+*.mov
+*.mp4
+*.webm
