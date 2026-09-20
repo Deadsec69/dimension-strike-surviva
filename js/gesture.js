@@ -474,8 +474,8 @@ export class GestureInput {
     const asp = this.canvas.width / this.canvas.height;
     const { point:pointH, victory:victoryH } = poseScores(lm, asp);
 
-    // 原始武器分数只做贴边门控，供武装 / fired 判断——与观察模式完全相同
-    const fistS = atEdge ? 0 : S('Closed_Fist'), palmS = atEdge ? 0 : S('Open_Palm');
+    // 原始武器分数：贴边门控；伸着食指的手不是拳头（几何判据确信时压掉 Closed_Fist，指着的手再像拳也不发动）
+    const fistS = atEdge || pointH > 0.5 || victoryH > 0.5 ? 0 : S('Closed_Fist'), palmS = atEdge ? 0 : S('Open_Palm');
     // 分类用的分数：在动的手不下令（观察模式里这条已成立），但可以瞄准。
     // 不门控的话，快速挥过去的侧向指向会被模糊帧判成 Closed_Fist，准星就断了。
     const moving = this.vel >= V_PAUSE;
@@ -484,8 +484,9 @@ export class GestureInput {
     if(Math.max(s.fist, s.palm) >= ENTER_SCORE) s.point = s.victory = 0;   // 武器优先（此时必然静止且确信）
     this._classify(s);
 
-    // 武装：与 _step 逐字相同。V_FAST 解除武装只影响武器；瞄准从不看 armed / lockUntil
-    const idle  = !atEdge && fistS < IDLE_SCORE && palmS < IDLE_SCORE;
+    // 武装：静止 300ms 就武装，不要求「手先放松」——生存模式里手一直在瞄准，停下来就握拳，
+    // 若还要先摆 300ms 中性手势，拳头就永远停在「冷却」。V_FAST 解除武装只影响武器；瞄准从不看 armed / lockUntil
+    const idle  = !atEdge;
     const still = this.vel < V_CHARGE;
     if(this.st === 'nohand'){ this.st = 'idle'; this.armed = false; this.idleT = this.clock; }
     if(this.vRaw >= V_FAST) this.armed = false;

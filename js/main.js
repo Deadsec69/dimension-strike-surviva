@@ -18,7 +18,7 @@ const el = {
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
   heatWarn:$('heatWarn'),
-  userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board')
+  userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear')
 };
 
 const stage = new PlanetStage(el.stage);
