@@ -290,5 +290,37 @@
   "ts": "2026-09-21T02:18:23+05:30",
   "ending": "heat",
   "warnings": []
+ },
+ {
+  "id": "1a0c09ba1aa-f4c9",
+  "username": "dui3",
+  "score": 22,
+  "kills": 0,
+  "blocks": 1,
+  "elapsed": 6.4,
+  "tier": "devil",
+  "emotion": "tired",
+  "emotion_zh": "疲惫",
+  "portrait": "runs/20260921-022712_dui3_devil.jpg",
+  "pending": false,
+  "ts": "2026-09-21T02:27:00+05:30",
+  "ending": "self",
+  "warnings": []
+ },
+ {
+  "id": "1a0c09c8b30-510d",
+  "username": "dui3",
+  "score": 6,
+  "kills": 0,
+  "blocks": 3,
+  "elapsed": 42.3,
+  "tier": "human",
+  "emotion": "blank",
+  "emotion_zh": "木然",
+  "portrait": "runs/20260921-022813_dui3_human.jpg",
+  "pending": false,
+  "ts": "2026-09-21T02:27:59+05:30",
+  "ending": "heat",
+  "warnings": []
  }
 ]

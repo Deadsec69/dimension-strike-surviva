@@ -18,7 +18,7 @@ const el = {
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
   heatWarn:$('heatWarn'),
-  userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
+  userName:$('userName'), nameNote:$('nameNote'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
   boardModal:$('boardModal'), boardRows:$('boardRows'), boardCsv:$('boardCsv'), boardClose:$('boardClose'), modalCount:$('modalCount'),
   boardClearModal:$('boardClearModal')
 };
@@ -274,6 +274,7 @@ async function ensureSurvival(){
 }
 async function enterSurvival(force = false){
   if(survivalOn || (!camOn && !force)) return;    // force 只给无头测试用
+  if(!force && board.isTaken(el.userName.value)){ syncSurvivalBtn(); return; }   // 代号被占：按钮本来就灰，这里再挡一道
   el.survivalBtn.disabled = true;
   try{
     await ensureSurvival();
@@ -316,9 +317,14 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--cam-h', e
 board.probe();                                   // 开页就探一次：榜不限生存模式
 // 观测者代号：开局前必填，记住上一次的
 el.userName.value = localStorage.getItem('ds.username') || '';
-const syncSurvivalBtn = () => { el.survivalBtn.disabled = !survivalOn && !el.userName.value.trim(); };
+const syncSurvivalBtn = () => {
+  const name = el.userName.value.trim(), taken = !!name && board.isTaken(name);
+  el.nameNote.hidden = !taken;
+  el.survivalBtn.disabled = !survivalOn && (!name || taken);   // 代号要唯一：榜上有人用了就不能开局
+};
 el.userName.addEventListener('input', () => { localStorage.setItem('ds.username', el.userName.value.trim()); syncSurvivalBtn(); });
 syncSurvivalBtn();
+board.onRows = syncSurvivalBtn;                  // 榜刷新后重查：别人刚打完的名字也算占了
 window.__ds.enterSurvival = enterSurvival; window.__ds.exitSurvival = exitSurvival;
 
 let survTxt = '';
