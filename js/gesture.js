@@ -48,6 +48,10 @@ const AIM_LABEL = { point:'瞄准', victory:'护盾' };
    所以再按指尖到腕的距离（按手长归一）补一条软分数：食指伸直、其余三指蜷起。
    斜坡而不是硬阈值，走同一套迟滞。拇指不看：指向时拇指常常翘着，分类器也不管它。 */
 const EXT_UP = [1.45, 1.60], EXT_DOWN = [1.25, 1.40];   // 伸直 ≥1.6 / 蜷起 ≤1.25，中间是斜坡
+/* ✌️ 再补一条相对判据：食指、中指都明显长过无名指、小指。绝对判据要无名指蜷到 1.25 以下、
+   两指伸到 1.6 以上，可无名指常常跟着中指半张着（≈1.4），V 朝镜头一倾指尖又缩短——两条都塌。
+   比值不受倾角影响（四指一起缩短），半张的无名指也过得去；摊掌四指等长、单指食指中指短，进不来。 */
+const V_LEAD = [1.30, 1.42], V_RATIO = [1.18, 1.32];
 const TIP_MIN_CUTOFF = 1.0, TIP_BETA = 20, TIP_D_CUTOFF = 1.0;   // 指尖比掌心抖：静止截止略低
 /* 指尖 → 视口的增益。1.25：手只需走画面中间 80% 就够到屏幕四边，不必伸直胳膊。
    y 的增益按「视口宽高比 / 画面宽高比」补上去，让手画的圆在屏上仍是圆（16:9 上 ≈1.67）；
@@ -117,6 +121,18 @@ class OneEuro {
 // 双手几何。归一化坐标是各向异性的（默认 4:3），x 要按宽高比缩放再量距离。
 const dist = (a, b, asp) => Math.hypot((a.x - b.x) * asp, a.y - b.y);
 const handSize = (lm, asp) => dist(lm[0], lm[9], asp);
+/* 指向 / ✌️ 的几何软分数（纯函数，便于测试）。指尖到腕的距离按手长（腕→中指根）归一。 */
+export function poseScores(lm, asp){
+  const size = Math.max(1e-4, handSize(lm, asp));
+  const ext = i => dist(lm[i], lm[0], asp) / size;
+  const up = e => sstep(EXT_UP[0], EXT_UP[1], e), down = e => 1 - sstep(EXT_DOWN[0], EXT_DOWN[1], e);
+  const e8 = ext(8), e12 = ext(12), e16 = ext(16), e20 = ext(20);
+  const point    = up(e8) * down(e12) * down(e16) * down(e20);
+  const victoryH = up(e8) * up(e12)   * down(e16) * down(e20);
+  const lead = Math.min(e8, e12), trail = Math.max(e16, e20);
+  const victoryR = sstep(V_LEAD[0], V_LEAD[1], lead) * sstep(V_RATIO[0], V_RATIO[1], lead / Math.max(1e-4, trail));
+  return { point, victory:Math.max(victoryH, victoryR) };
+}
 function palmCenter(lm){
   let x = 0, y = 0;
   for(const i of PALM_IDX){ x += lm[i].x; y += lm[i].y; }
@@ -456,12 +472,7 @@ export class GestureInput {
 
     // 几何判据（软分数）
     const asp = this.canvas.width / this.canvas.height;
-    const size = Math.max(1e-4, handSize(lm, asp));
-    const ext = i => dist(lm[i], lm[0], asp) / size;
-    const up = e => sstep(EXT_UP[0], EXT_UP[1], e), down = e => 1 - sstep(EXT_DOWN[0], EXT_DOWN[1], e);
-    const e8 = ext(8), e12 = ext(12), e16 = ext(16), e20 = ext(20);
-    const pointH   = up(e8) * down(e12) * down(e16) * down(e20);
-    const victoryH = up(e8) * up(e12)   * down(e16) * down(e20);
+    const { point:pointH, victory:victoryH } = poseScores(lm, asp);
 
     // 原始武器分数只做贴边门控，供武装 / fired 判断——与观察模式完全相同
     const fistS = atEdge ? 0 : S('Closed_Fist'), palmS = atEdge ? 0 : S('Open_Palm');
@@ -541,6 +552,11 @@ export class GestureInput {
       if(this.cls && !CLASS[this.cls].weapon){
         const w = (s.fist ?? 0) >= (s.palm ?? 0) ? 'fist' : 'palm';
         if((s[w] ?? 0) >= ENTER_SCORE){ this.cls = w; this.exitMs = 0; }
+        // 指向 ↔ ✌️ 之间也不等 120ms：当前类已掉线、另一类确信，这不是坏帧，是换了姿势
+        else if(cur < EXIT_SCORE){
+          const o = this.cls === 'point' ? 'victory' : 'point';
+          if((s[o] ?? 0) >= ENTER_SCORE){ this.cls = o; this.exitMs = 0; }
+        }
       }
     }
     if(!this.cls){
