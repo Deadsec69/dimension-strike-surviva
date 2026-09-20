@@ -12,13 +12,15 @@ import { tierOf, TIER_ZH, TIER_EN } from './board.js';
 /* ── 节奏 ── */
 const MAX_ROCKS  = 64;                  // InstancedMesh 容量。同屏很少超过 8，64 是零成本的余量
 const SPAWN_R    = 2.8;                 // 16:9 下画面半宽 2.58：从画外一点点进来；固定半径 ⇒ 落地时间一致
-/* 难度只看分（分只来自陨石），不看时间：起步慢；125 分（二十五颗）快一点；200 分（四十颗）再快；
-   往后每 100 分再加一成，封顶。目标值用 τ=4s 逼近，换档读作「快了一点」而不是跳变；已经在飞的石头不改速。 */
+/* 难度按分定档（分只来自陨石）：起步慢；125 分（二十五颗）快一点；200 分（四十颗）再快；
+   往后每 100 分再加一成。时间再乘一层：一分钟、三分钟各快一档——只拦不打的人也躲不过钟表。
+   两层相乘后封顶。目标值用 τ=4s 逼近，换档读作「快了一点」而不是跳变；已经在飞的石头不改速。 */
 const STAGES = [
   { at:0,   v:0.32, iv:1.9, dbl:0.00 },
   { at:125, v:0.42, iv:1.4, dbl:0.15 },
   { at:200, v:0.55, iv:1.0, dbl:0.35 }
 ];
+const TIME_STEPS = [ { at:60, k:1.15 }, { at:180, k:1.30 } ];   // k = 速度倍率，间隔除以 k；两颗一起的概率只看分
 const STAGE_STEP = 100, STAGE_GAIN = 0.10, V_CAP = 0.8, IV_FLOOR = 0.7, DBL_CAP = 0.5;
 const STAGE_TAU  = 4;
 const SPAWN_JIT  = 0.35;                // 间隔 ±35%：去掉节拍器感
@@ -400,14 +402,16 @@ export class Survival {
     this._flavour();
   }
 
-  /* ── 难度：按分定档，目标值慢慢逼近 ── */
+  /* ── 难度：按分定档 × 按时加码，目标值慢慢逼近 ── */
   _stageTarget(){
     let s = 0;
     for(let i = 0; i < STAGES.length; i++) if(this.score >= STAGES[i].at) s = i;
     const top = STAGES[STAGES.length - 1];
     const extra = s === STAGES.length - 1 ? Math.floor((this.score - top.at) / STAGE_STEP) : 0;   // 200 分之后每 100 分再加一成
-    const k = Math.pow(1 + STAGE_GAIN, extra);
-    return { stage:s + extra, v:Math.min(V_CAP, STAGES[s].v * k), iv:Math.max(IV_FLOOR, STAGES[s].iv / k),
+    let tk = 1, ts = 0;
+    for(const st of TIME_STEPS) if(this.elapsed >= st.at){ tk = st.k; ts++; }                     // 一分钟 ×1.15，三分钟 ×1.30
+    const k = Math.pow(1 + STAGE_GAIN, extra) * tk;
+    return { stage:s + extra + ts, v:Math.min(V_CAP, STAGES[s].v * k), iv:Math.max(IV_FLOOR, STAGES[s].iv / k),
              dbl:Math.min(DBL_CAP, STAGES[s].dbl + (extra ? 0.15 : 0)) };
   }
   _stage(dt){
