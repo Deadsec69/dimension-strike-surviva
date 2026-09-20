@@ -92,45 +92,45 @@ export class Civilization {
   }
 
   _check(T, P, prevPop, resist){
-    this._say('hello', `检测到窄带信号。第 ${this.idText} 号文明向未知观察者致意。`);
+    this._say('hello', `Narrowband signal detected. Civilization No. ${this.idText} greets an unknown observer.`);
 
     // ── 温度
-    if(T > 302) this._say('warm', '行星均温上升 14 K。他们注意到了，归因于恒星活动周期。');
-    if(T > 334) this._say('hot1', '赤道带作物连续三季绝收。人口开始向两极迁徙。');
-    if(T > 402) this._say('hot2', '海洋表层沸腾。对外广播中止，转为地下求生。');
-    if(T > 620) this._say('hot3', '地表已无液态水。仍有七座避难所在运转。');
-    if(T < 262) this._say('cold1', '冰盖越过北纬 40 度。他们烧掉了最后的森林。');
-    if(T < 228) this._say('cold2', '海洋封冻。地热城市成为唯一的居住形式。');
-    if(T < 196) this._say('cold3', '信号收束至单一坐标，循环播发一段乐曲。');
+    if(T > 302) this._say('warm', 'Mean temperature up 14 K. They noticed, and blamed the stellar cycle.');
+    if(T > 334) this._say('hot1', 'Three straight equatorial harvests lost. Populations begin moving toward the poles.');
+    if(T > 402) this._say('hot2', 'Ocean surface boiling. Outbound broadcasts cease; survival moves underground.');
+    if(T > 620) this._say('hot3', 'No liquid water left on the surface. Seven shelters still operating.');
+    if(T < 262) this._say('cold1', 'Ice sheets pass 40° N. They burned the last forests.');
+    if(T < 228) this._say('cold2', 'Oceans frozen over. Geothermal cities are the only way left to live.');
+    if(T < 196) this._say('cold3', 'The signal collapses to a single coordinate, looping one piece of music.');
 
     // ── 气压
-    if(P < 0.42) this._say('thin1', '大气正在逃逸。十二座城市加盖了穹顶。');
-    if(P < 0.09) this._say('thin2', '穹顶结构相继失效。');
-    if(P > 7.5) this._say('thick1', '大气压达到标准值七倍。地表建筑被逐一压毁。');
-    if(P > 24) this._say('thick2', '地壳承压超限。没有信号传出。');
+    if(P < 0.42) this._say('thin1', 'The atmosphere is escaping. Twelve cities have been domed.');
+    if(P < 0.09) this._say('thin2', 'Dome structures failing one after another.');
+    if(P > 7.5) this._say('thick1', 'Pressure at seven times standard. Surface structures crushed one by one.');
+    if(P > 24) this._say('thick2', 'Crustal load exceeded. No signal is getting out.');
 
     // ── 技术抵抗（他们真的在反击）
     if(resist > 0.11 && this.hab < 0.55)
-      this._say('resist', '他们在拉格朗日点建起了反射镜阵列。有效。暂时。');
+      this._say('resist', 'They built a mirror array at the Lagrange point. It works. For now.');
 
     // ── 人口节点
-    if(this.pop < 0.52) this._say('p50', '人口减半。广播内容从问候变成了坐标。');
-    if(this.pop < 0.21) this._say('p20', `第 ${this.idText} 号文明请求对话。任何形式的对话。`);
-    if(this.pop < 0.06) this._say('p05', '广播功率衰减至背景噪声水平。');
+    if(this.pop < 0.52) this._say('p50', 'Population halved. The broadcasts have changed from greetings to coordinates.');
+    if(this.pop < 0.21) this._say('p20', `Civilization No. ${this.idText} requests dialogue. Any form of dialogue.`);
+    if(this.pop < 0.06) this._say('p05', 'Broadcast power has decayed to the noise floor.');
     if(this.pop <= 0 && prevPop > 0){
       this.dead = true;
-      this._say('gone', '……信号中断。', 'final');
+      this._say('gone', '…signal lost.', 'final');
     }
 
     // ── 自转异常。这是整个模拟里唯一一处他们能「察觉到被干预」的地方：
     // 温度和气压还能归因于恒星，天空以错误的速度移动却无法解释。
-    if(this.spun > 3.0)  this._say('spin1', '恒星日长度出现无法解释的偏移。所有历法重新校准。');
-    if(this.spun > 13)   this._say('spin2', '天空正以错误的速度移动。有人提出「被观测」假说。');
-    if(this.spun > 34)   this._say('spin3', '昼夜节律崩溃。他们给那只看不见的手起了名字。');
+    if(this.spun > 3.0)  this._say('spin1', 'Unexplained drift in the length of the day. Every calendar recalibrated.');
+    if(this.spun > 13)   this._say('spin2', 'The sky is moving at the wrong speed. Someone proposes the "being watched" hypothesis.');
+    if(this.spun > 34)   this._say('spin3', 'Circadian rhythms collapse. They have given the invisible hand a name.');
 
     // ── 恢复（奖励把参数调回来的人）
     if(this.minPop < 0.32 && this.pop > 0.72 && !this.dead)
-      this._say('revive', '人口回升。他们把这段时期写进经典，称之为「长夜」。');
+      this._say('revive', 'Population recovering. They wrote this period into scripture and called it the Long Night.');
   }
 
   /** 发动打击 */
@@ -142,11 +142,11 @@ export class Civilization {
 
   verdict(){
     if(this.struck === 'foil')
-      return '跌落到二维的过程持续了 1,341 年。\n从他们的视角看，宇宙只是慢慢变薄了。';
+      return 'The fall into two dimensions took 1,341 years.\nFrom their side, the universe simply grew thinner.';
     if(this.struck === 'crush')
-      return `行星解体耗时 94 秒。\n第 ${this.idText} 号文明未能发出任何讯息。`;
+      return `Planetary disintegration took 94 seconds.\nCivilization No. ${this.idText} sent no message.`;
     // 不动手也能结束——参数拧到那里，他们自己就走完了
-    return `没有动用任何武器。\n第 ${this.idText} 号文明，观测结束。`;
+    return `No weapon was used.\nCivilization No. ${this.idText}: observation ended.`;
   }
 
   /** 取出待播报的消息并清空队列 */
@@ -159,9 +159,9 @@ export class Civilization {
   get popText(){
     const v = this.pop * POP_BASE;
     if(v <= 0) return '0';
-    if(v < 0.01) return '< 100 万';
-    if(v < 1) return (v * 10000).toFixed(0) + ' 万';
-    return v.toFixed(1) + ' 亿';
+    if(v < 0.01) return '< 1 M';                    // v 的单位是亿：×100 = 百万，÷10 = 十亿
+    if(v < 10) return (v * 100).toFixed(0) + ' M';
+    return (v / 10).toFixed(2) + ' B';
   }
   get techText(){ return this.tech.toFixed(2); }
   get habText(){ return this.hab.toFixed(2); }

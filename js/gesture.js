@@ -31,7 +31,7 @@ const CONNECTIONS = [
 ];
 
 const PALM_IDX = [0, 5, 9, 13, 17];   // 掌心 = 腕点与四个掌指关节的平均：比任何单点都稳，手指乱动也不会带偏
-const LABEL = { fist:'握拳', palm:'摊掌' };
+const LABEL = { fist:'Fist', palm:'Palm' };
 
 /* ── 类别表。四个类别共用同一套迟滞（进 0.62 / 连续 120ms 低于 0.45 才出）。
    weapon 标记决定两件事：退出时是否记 weaponEndT（观察模式的起拨抑制），
@@ -42,7 +42,7 @@ const CLASS = {
   point:   { cat:'Pointing_Up', weapon:false },
   victory: { cat:'Victory',     weapon:false }
 };
-const AIM_LABEL = { point:'瞄准', victory:'护盾' };
+const AIM_LABEL = { point:'Aim', victory:'Shield' };
 
 /* ── 指向的几何判据（生存模式）。Pointing_Up 只认竖着的食指，侧着指屏幕角落时分数塌掉，
    所以再按指尖到腕的距离（按手长归一）补一条软分数：食指伸直、其余三指蜷起。
@@ -192,15 +192,15 @@ export class GestureInput {
 
   async start(){
     if(!window.isSecureContext){
-      this.onState('需 HTTPS', 'err');
-      throw new Error('getUserMedia 需要安全上下文（HTTPS 或 localhost）');
+      this.onState('HTTPS required', 'err');
+      throw new Error('getUserMedia needs a secure context (HTTPS or localhost)');
     }
     if(!navigator.mediaDevices?.getUserMedia){
-      this.onState('不支持', 'err');
-      throw new Error('此浏览器不支持 getUserMedia');
+      this.onState('Unsupported', 'err');
+      throw new Error('This browser has no getUserMedia');
     }
 
-    this.onState('加载模型…');
+    this.onState('Loading model…');
     const fileset = await FilesetResolver.forVisionTasks('./vendor/wasm');
     const hands = this.wantClap ? 2 : 1;   // 摄像头可能是在判词已经出来之后才开的
     this.rec = await GestureRecognizer.createFromOptions(fileset, {
@@ -213,7 +213,7 @@ export class GestureInput {
     });
     this.numHands = hands;
 
-    this.onState('请求摄像头…');
+    this.onState('Requesting camera…');
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       audio: false
@@ -229,7 +229,7 @@ export class GestureInput {
     this.errN = 0;
     this._toNoHand(); this._resetClap();
     this.running = true;
-    this.onState('待机', 'live');
+    this.onState('Standby', 'live');
     this._applyHands();      // 等模型的这段时间里 wantClap 可能又变了
     this._loop();
   }
@@ -244,7 +244,7 @@ export class GestureInput {
     try{ rec?.close?.(); }catch{}   // start() 每次新建一个识别器，不关就是每开一次摄像头漏一个
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this._toNoHand();
-    this.onState('未启用');
+    this.onState('Off');
   }
 
   /* 外部打断：换样本、复位、判词出现。结束拨动、取消蓄力、解除武装并锁 1 秒——
@@ -279,13 +279,13 @@ export class GestureInput {
     if(want === this.numHands) return;
     const rec = this.rec;
     this.switching = true;
-    this.onState('切换中…', 'live');
+    this.onState('Switching…', 'live');
     try{
       // 不带 baseOptions 时是同步重建图，但仍按 promise 处理。numHands 在这个 bundle 里是
       // 无条件写入的（t.numHands ?? 1），所以必须显式给，否则 setOptions({}) 会悄悄退回一只手。
       await rec.setOptions({ numHands: want });
     }catch(e){
-      console.warn('[手势] setOptions 失败，留在单手模式', e);
+      console.warn('[gesture] setOptions failed, staying in one-hand mode', e);
       this.switching = false;
       return;
     }
@@ -321,9 +321,9 @@ export class GestureInput {
     }catch(e){
       this._abandon();
       if(++this.errN >= 30){
-        console.error('[手势] 识别连续出错', e);
+        console.error('[gesture] recognizer keeps failing', e);
         this.stop();
-        this.onState('识别出错', 'err');
+        this.onState('Recognizer error', 'err');
       }
       return;
     }
@@ -347,7 +347,7 @@ export class GestureInput {
       if(this.clock - this.seenT < GRACE_MS) return; // 短暂丢失：蓄力计时、武装状态原样保留
       if(this.st === 'charge' && this.k > 0) this.onCharge(this.kind, 0);
       this._toNoHand();                              // 离开画面 = 暂停，不是重新武装
-      this.onState('待机', 'live');
+      this.onState('Standby', 'live');
       return;
     }
 
@@ -373,24 +373,24 @@ export class GestureInput {
     switch(this.st){
       case 'idle': {
         if(this.cls && this.vel < V_PAUSE){          // 静止的武器姿势
-          if(!this.armed) this.onState('冷却', 'live');
-          else if(!this.canFire()) this.onState('不可用', 'live');
+          if(!this.armed) this.onState('Cooldown', 'live');
+          else if(!this.canFire()) this.onState('Unavailable', 'live');
           else {
             this.st = 'charge'; this.kind = this.cls;
             this.chargeT = this.clock; this.k = 0; this.pausedMs = 0;
-            this.onState(`${label} 蓄力 0%`, 'live');
+            this.onState(`${label} charging 0%`, 'live');
           }
           break;
         }
         // 在动的手一律是拨，不管什么手形
-        if(this.clock - this.weaponEndT < GRAB_SUPPRESS_MS){ this.onState(this.armed ? '待机' : '冷却', 'live'); break; }
+        if(this.clock - this.weaponEndT < GRAB_SUPPRESS_MS){ this.onState(this.armed ? 'Standby' : 'Cooldown', 'live'); break; }
         if(this.clock - this.lostT < FLICK_MS && this.lostV > V_FAST){   // 快甩出画面后回来
           if(this.vRaw > V_FAST) this._beginDrag();                     // 新的一挥：直接抓（清速无害，手在动）
           else if(still){                                               // 静止下来：这是有意接住
             if(this.settleT < 0) this.settleT = this.clock;
             if(this.clock - this.settleT >= SETTLE_MS) this._beginDrag();
-            else this.onState('待机', 'live');
-          }else{ this.settleT = -1; this.onState('待机', 'live'); }     // 漂着的手：让星球继续转
+            else this.onState('Standby', 'live');
+          }else{ this.settleT = -1; this.onState('Standby', 'live'); }     // 漂着的手：让星球继续转
           break;
         }
         this._beginDrag();
@@ -400,7 +400,7 @@ export class GestureInput {
         // 拨动优先：拨动中出现的武器姿势只在手慢下来之后才作数
         if(this.cls && this.vel < V_PAUSE){
           this.onDrag('end'); this.weaponEndT = this.clock; this.st = 'idle';
-          this.onState(`${label} 稳住`, 'live');
+          this.onState(`${label} hold still`, 'live');
           break;
         }
         if(!seeded){
@@ -408,7 +408,7 @@ export class GestureInput {
           if(Math.abs(dx) > DEAD_ZONE || Math.abs(dy) > DEAD_ZONE) this.onDrag('move', dx * DRAG_PX_X, dy * DRAG_PX_Y);
         }
         this.anchor = this.p;
-        this.onState('拨动', 'live');
+        this.onState('Spinning', 'live');
         break;
       }
       case 'charge': this._stepCharge(s[this.kind] ?? 0, label); break;
@@ -423,14 +423,14 @@ export class GestureInput {
       this.k = 0; this.weaponEndT = this.clock; this.st = 'idle';
       // 中断也解除武装：握拳张开成摊掌、就地停住，不该 0.6 秒后变成一记二向箔
       this.armed = false;
-      this.onState('冷却', 'live');
+      this.onState('Cooldown', 'live');
       return;
     }
     // 分数掉进迟滞带、或手在微动：暂停，不推进也不中断。中断得等退出确认——
     // 否则 85% 时松手，那 120ms 的退出延迟会把它送到 100%。
     if(score < EXIT_SCORE || this.vel >= V_CHARGE){
       this.pausedMs += this.dtMs;
-      this.onState(`${label} 稳住`, 'live');
+      this.onState(`${label} hold still`, 'live');
       return;
     }
     this.k = clamp01((this.clock - this.chargeT - CHARGE_PRE_MS - this.pausedMs) / CHARGE_MS[this.kind]);
@@ -438,17 +438,17 @@ export class GestureInput {
     if(this.k >= 1){
       this.armed = false; this.firedT = this.clock; this.st = 'fired';
       this.onGesture(this.kind);
-      this.onState(`${label} 已发动`, 'live');
+      this.onState(`${label} fired`, 'live');
     }else{
-      this.onState(`${label} 蓄力 ${Math.round(this.k * 20) * 5}%`, 'live');
+      this.onState(`${label} charging ${Math.round(this.k * 20) * 5}%`, 'live');
     }
   }
   _stepFired(idle, label){                            // 必须放松才回到 idle
     if(idle){
       this.onCharge(this.kind, 0); this.k = 0;
       this.weaponEndT = this.clock; this.st = 'idle';
-      this.onState('冷却', 'live');
-    }else this.onState(`${label} 已发动`, 'live');
+      this.onState('Cooldown', 'live');
+    }else this.onState(`${label} fired`, 'live');
   }
 
   /* ── 生存模式的单手状态机：没有 grab；指向 / 剪刀手发准星，武器照旧 ── */
@@ -459,7 +459,7 @@ export class GestureInput {
       if(this.clock - this.seenT < GRACE_MS) return;   // 短暂丢失：蓄力、武装原样保留
       if(this.st === 'charge' && this.k > 0) this.onCharge(this.kind, 0);
       this._toNoHand();
-      this.onState('待机', 'live');
+      this.onState('Standby', 'live');
       return;
     }
 
@@ -498,12 +498,12 @@ export class GestureInput {
       case 'idle': {
         if(CLASS[this.cls]?.weapon && this.vel < V_PAUSE){   // 静止的武器姿势：与 _step 相同的三岔口
           this._aimOff();
-          if(!this.armed) this.onState('冷却', 'live');
-          else if(!this.canFire()) this.onState('不可用', 'live');
+          if(!this.armed) this.onState('Cooldown', 'live');
+          else if(!this.canFire()) this.onState('Unavailable', 'live');
           else {
             this.st = 'charge'; this.kind = this.cls;
             this.chargeT = this.clock; this.k = 0; this.pausedMs = 0;
-            this.onState(`${label} 蓄力 0%`, 'live');
+            this.onState(`${label} charging 0%`, 'live');
           }
           break;
         }
@@ -514,7 +514,7 @@ export class GestureInput {
           this.onState(AIM_LABEL[this.cls], 'live');
         }else{
           this._aimOff();
-          this.onState(this.armed ? '待机' : '冷却', 'live');
+          this.onState(this.armed ? 'Standby' : 'Cooldown', 'live');
         }
         break;
       }
@@ -589,7 +589,7 @@ export class GestureInput {
     this.settleT = -1;
     this.st = 'grab';
     this.onDrag('start');
-    this.onState('拨动', 'live');
+    this.onState('Spinning', 'live');
   }
 
   // 结束拨动、取消蓄力（该发的回调都发），回到 nohand。不动 armed 与锁。
@@ -610,7 +610,7 @@ export class GestureInput {
 
   /* ── 双手：击掌 ── */
   _clap(hands, dt){
-    this.onState('击掌换样本', 'live');
+    this.onState('Clap for next specimen', 'live');
     if(this.clock - this.clapT < CLAP_COOL_MS){ this.clapPrev = null; this.closingN = 0; return; }
     if(hands.length < 2){
       const prev = this.clapPrev;

@@ -8,7 +8,6 @@
 /* 评级（与 serve.py 保持一致）。分只来自陨石：击落 5、拦下 2，烧穿也照算。
    ≥250 神、≥100 半神；不到 100 分：自己收手的 = 魔，烧穿的 = 人。 */
 export const GOD_SCORE = 250, DEMIGOD_SCORE = 100;
-export const TIER_ZH = { devil:'魔', human:'人', demigod:'半神', god:'神' };
 export const TIER_EN = { devil:'DEVIL', human:'HUMAN', demigod:'DEMIGOD', god:'GOD' };
 const PROBE_MS = 8000, FINISH_MS = 20000;               // 结算立刻回（分先入账），画像在后台生成、这边轮询
 const POLL_MS = 3000, POLL_MAX_MS = 20 * 60000;        // Gemini 慢起来实测要十分钟以上：轮询二十分钟，之后当失败
@@ -43,7 +42,7 @@ export class Board {
   }
 
   username(){
-    const v = (this.el.userName?.value || '').trim() || localStorage.getItem('ds.username') || '观测者';
+    const v = (this.el.userName?.value || '').trim() || localStorage.getItem('ds.username') || 'observer';
     return v.slice(0, 16);
   }
 
@@ -90,10 +89,10 @@ export class Board {
       const j = await r.json();
       run.entry = j.entry; run.state = j.entry.pending ? 'generating' : 'done'; this.online = true;
       if(j.leaderboard) this.rows = j.leaderboard;
-      if(j.warnings?.length) console.warn('[结算] 降级：', j.warnings);
+      if(j.warnings?.length) console.warn('[run] degraded:', j.warnings);
       if(run.state === 'generating') this._poll(run);
     }catch(e){                        // 服务器不在 / 超时 / 5xx：原片 + 本地行，不落盘
-      console.warn('[结算] 本地降级：', e.message);
+      console.warn('[run] local fallback:', e.message);
       run.state = 'failed'; run.error = e.message;
       run.entry = { username:run.username, score:run.score, kills:run.kills, blocks:run.blocks, elapsed:run.elapsed, ending:run.ending,
                     tier:run.tier, portrait:null, emotion:null, emotion_zh:null,
@@ -116,7 +115,7 @@ export class Board {
         const e = (await r.json()).entry;
         if(!e || e.pending) continue;
         run.entry = e; run.state = 'done';
-        if(e.warnings?.length) console.warn('[结算] 画像降级：', e.warnings);
+        if(e.warnings?.length) console.warn('[run] portrait degraded:', e.warnings);
         this._paintVerdict(run);
         await this.refresh(); this.render(run.entry);
         return;
@@ -139,13 +138,13 @@ export class Board {
     const { portrait, portraitImg, portraitMeta } = this.el;
     if(!run || run !== this.run) return;
     portrait.className = `portrait is-on is-${run.tier}`;
-    // 评级先行，在计分卡上说清楚：魔 DEVIL / 人 HUMAN / 神 GOD
+    // 评级先行，在计分卡上说清楚：DEVIL / HUMAN / DEMIGOD / GOD
     const tierTag = () => { const b = document.createElement('b'); b.className = `tier is-${run.tier}`;
-      b.textContent = `评级 ${TIER_ZH[run.tier]} · ${TIER_EN[run.tier]}`; return b; };
+      b.textContent = `RANK ${TIER_EN[run.tier]}`; return b; };
     if(run.state === 'pending' || run.state === 'generating'){
       portrait.classList.add('is-wait');
       if(run.snapshot) portraitImg.src = 'data:image/jpeg;base64,' + run.snapshot;   // 先垫原片，画像到了再换
-      portraitMeta.replaceChildren(tierTag(), document.createTextNode(run.state === 'pending' ? '　记录中…' : '　生成画像中…（Gemini 有时要几分钟）'));
+      portraitMeta.replaceChildren(tierTag(), document.createTextNode(run.state === 'pending' ? '\u2003Recording…' : '\u2003Generating portrait… (Gemini can take minutes)'));
       return;
     }
     const e = run.entry;
@@ -154,10 +153,10 @@ export class Board {
       portraitImg.src = portrait.href = 'data:image/jpeg;base64,' + run.snapshot;
       portrait.classList.add('is-raw');
     }else portrait.classList.add('is-none');
-    const why = e.local ? (run.error === 'offline' || /Failed to fetch|404/.test(run.error || '') ? '　· 未连接服务器' : '　· 未存档')
-              : (e.timeout ? '　· 画像超时' : (!e.portrait && e.warnings?.length ? '　· 画像失败' : ''));
+    const why = e.local ? (run.error === 'offline' || /Failed to fetch|404/.test(run.error || '') ? '\u2003· server offline' : '\u2003· not saved')
+              : (e.timeout ? '\u2003· portrait timed out' : (!e.portrait && e.warnings?.length ? '\u2003· portrait failed' : ''));
     portraitMeta.replaceChildren(tierTag(),
-      document.createTextNode(`　表情 ${e.emotion_zh || e.emotion || '未读出'}` + why));
+      document.createTextNode(`\u2003Mood ${e.emotion || 'unread'}` + why));
   }
 
   _toggle(){ document.body.classList.toggle('has-board', !!this.online || this.local.length > 0); }
@@ -170,14 +169,14 @@ export class Board {
       li.className = (me && e.id === me.id ? 'is-me' : '') + (e.local ? ' is-local' : '');
       const thumb = document.createElement(e.portrait ? 'a' : 'span');
       thumb.className = `thumb is-${e.tier}` + (e.pending ? ' is-pending' : '');
-      if(e.pending) thumb.title = '画像生成中…';
+      if(e.pending) thumb.title = 'Generating portrait…';
       if(e.portrait){
         thumb.href = e.portrait; thumb.target = '_blank'; thumb.rel = 'noopener';
         const img = new Image(); img.src = e.portrait; img.alt = ''; thumb.appendChild(img);
       }
       const mk = (cls, txt, title) => { const s = document.createElement('span'); s.className = cls; s.textContent = txt; if(title) s.title = title; return s; };
       li.append(mk('rank', String(i + 1).padStart(2, '0')), thumb,
-                mk('name', e.username, `${TIER_ZH[e.tier] || ''} · ${e.emotion_zh || e.emotion || ''} · ${e.elapsed}s · 击落 ${e.kills}` + (e.blocks != null ? ` · 拦下 ${e.blocks}` : '')),
+                mk('name', e.username, `${TIER_EN[e.tier] || ''} · ${e.emotion || ''} · ${e.elapsed}s · shot ${e.kills}` + (e.blocks != null ? ` · blocked ${e.blocks}` : '')),
                 mk(`tag is-${e.tier}`, TIER_EN[e.tier] || ''),
                 mk('score num', Number(e.score || 0).toLocaleString('en-US')));
       return li;

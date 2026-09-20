@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>降维打击模拟器</title>
+<title>Dimensional Strike</title>
 <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
@@ -11,106 +11,107 @@
 <canvas id="stage"></canvas>
 <div id="vignette"></div>
 <div id="aim" class="aim" aria-hidden="true"><i></i></div>
-<div id="heatWarn" class="heat-warn" aria-live="polite"><b>行星即将熔毁</b><span>握拳 / 摊掌收手，把分带走</span></div>
+<div id="heatWarn" class="heat-warn" aria-live="polite"><b>PLANET ABOUT TO MELT</b><span>FIST / OPEN PALM TO END THE RUN AND BANK YOUR SCORE</span></div>
 
 <header class="brand">
-  <div class="brand-mark">降维打击模拟器</div>
-  <div class="brand-sub">DIMENSIONAL&nbsp;STRIKE&nbsp;·&nbsp;高维观测者控制台</div>
-  <div class="brand-credit">地表影像 <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> · CC&nbsp;BY&nbsp;4.0</div>
+  <div class="brand-mark">Dimensional Strike</div>
+  <div class="brand-sub">SIMULATOR&nbsp;·&nbsp;HIGH-DIMENSIONAL&nbsp;OBSERVER&nbsp;CONSOLE</div>
+  <div class="brand-credit">Surface imagery <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> · CC&nbsp;BY&nbsp;4.0</div>
+  <div id="survHint" class="brand-rules">SURVIVAL — Point your index finger to shoot · 5 pts each<br>✌️ Hold 0.5 s to lay a shield: blocks 2, lasts 7 s · 2 pts per block<br>Fist / open palm ends the run +20 · burn-through keeps your score<br>100 pts DEMIGOD · 250 pts GOD</div>
 </header>
 
-<section class="panel panel-left" aria-label="环境参数">
-  <h2 class="panel-title">环境参数<span class="panel-tag" id="envTag">ENV</span></h2>
+<section class="panel panel-left" aria-label="Environment">
+  <h2 class="panel-title">ENVIRONMENT<span class="panel-tag" id="envTag">ENV</span></h2>
 
   <div class="ctl">
-    <label for="temp">表面均温</label>
+    <label for="temp">Mean surface temperature</label>
     <output id="tempOut" class="ctl-val">288<i>K</i></output>
     <input id="temp" type="range" min="90" max="900" step="1" value="288">
-    <div class="ctl-scale"><span>90</span><span class="ctl-ideal">288 宜居</span><span>900</span></div>
+    <div class="ctl-scale"><span>90</span><span class="ctl-ideal">288 habitable</span><span>900</span></div>
   </div>
 
   <div class="ctl">
-    <label for="pres">大气压强</label>
+    <label for="pres">Atmospheric pressure</label>
     <output id="presOut" class="ctl-val">1.00<i>atm</i></output>
     <input id="pres" type="range" min="0" max="100" step="0.5" value="50">
-    <div class="ctl-scale"><span>0.01</span><span class="ctl-ideal">1.0 宜居</span><span>100</span></div>
+    <div class="ctl-scale"><span>0.01</span><span class="ctl-ideal">1.0 habitable</span><span>100</span></div>
   </div>
 
-  <button id="reset" class="btn btn-ghost" type="button">恢复初始参数</button>
+  <button id="reset" class="btn btn-ghost" type="button">Reset parameters</button>
 </section>
 
-<section class="panel panel-right" aria-label="目标监测">
-  <h2 class="panel-title">目标监测<span class="panel-tag" id="statusTag">OBSERVING</span></h2>
+<section class="panel panel-right" aria-label="Target monitor">
+  <h2 class="panel-title">TARGET MONITOR<span class="panel-tag" id="statusTag">OBSERVING</span></h2>
 
   <div class="target">
-    <div class="target-id">第 <span id="specId" class="num">3,241</span> 号文明</div>
-    <div class="target-sub"><span id="specTag">GLIESE&nbsp;581&nbsp;/&nbsp;IV</span>&nbsp;· 碳基 · 已进入行星际时代</div>
+    <div class="target-id">Civilization No. <span id="specId" class="num">3,241</span></div>
+    <div class="target-sub"><span id="specTag">GLIESE&nbsp;581&nbsp;/&nbsp;IV</span>&nbsp;· CARBON-BASED · INTERPLANETARY</div>
   </div>
 
   <dl class="readout">
-    <div><dt>人口</dt><dd id="popOut" class="num">78.4 亿</dd></div>
-    <div><dt>技术等级</dt><dd id="techOut" class="num">2.41</dd></div>
-    <div><dt>宜居指数</dt><dd id="habOut" class="num">1.00</dd></div>
+    <div><dt>Population</dt><dd id="popOut" class="num">7.84 B</dd></div>
+    <div><dt>Tech level</dt><dd id="techOut" class="num">2.41</dd></div>
+    <div><dt>Habitability</dt><dd id="habOut" class="num">1.00</dd></div>
   </dl>
 
-  <div class="bar" role="img" aria-label="宜居指数"><div id="habBar" class="bar-fill"></div></div>
+  <div class="bar" role="img" aria-label="Habitability"><div id="habBar" class="bar-fill"></div></div>
 
-  <h3 id="survTitle" class="log-title">生存记录<span class="log-src">SURVIVAL</span></h3>
-  <dl id="survOut" class="readout readout-surv" aria-label="生存记录">
-    <div><dt>坚持</dt><dd id="survTime" class="num">0.0 s</dd></div>
-    <div><dt>击落</dt><dd id="survKills" class="num">0</dd></div>
-    <div><dt>拦截</dt><dd id="survBlocks" class="num">0</dd></div>
-    <div><dt>护盾</dt><dd id="survShields" class="num">0</dd></div>
-    <div><dt>得分</dt><dd id="survScore" class="num">0</dd></div>
-    <div><dt>评级</dt><dd id="survTier" class="num tier is-human">人 HUMAN</dd></div>
+  <h3 id="survTitle" class="log-title">SURVIVAL LOG<span class="log-src">SURVIVAL</span></h3>
+  <dl id="survOut" class="readout readout-surv" aria-label="Survival log">
+    <div><dt>Time</dt><dd id="survTime" class="num">0.0s</dd></div>
+    <div><dt>Shot</dt><dd id="survKills" class="num">0</dd></div>
+    <div><dt>Blocked</dt><dd id="survBlocks" class="num">0</dd></div>
+    <div><dt>Shields</dt><dd id="survShields" class="num">0</dd></div>
+    <div><dt>Score</dt><dd id="survScore" class="num">0</dd></div>
+    <div><dt>Rank</dt><dd id="survTier" class="num tier is-human">HUMAN</dd></div>
   </dl>
 
-  <h3 id="boardTitle" class="log-title">观测者榜<span class="log-src">RUNS</span></h3>
-  <ol id="board" class="board" aria-label="观测者榜"></ol>
+  <h3 id="boardTitle" class="log-title">OBSERVER BOARD<span class="log-src">RUNS</span></h3>
+  <ol id="board" class="board" aria-label="Observer board"></ol>
 
-  <h3 class="log-title">通讯记录<span class="log-src">1420 MHz</span></h3>
+  <h3 class="log-title">COMMS LOG<span class="log-src">1420 MHz</span></h3>
   <ul id="log" class="log"></ul>
 </section>
 
-<section class="strike" aria-label="打击选项">
+<section class="strike" aria-label="Strike options">
   <div class="strike-row">
     <button id="crush" class="btn btn-strike" type="button">
       <span class="btn-ico" data-ico="fist"></span>
-      <span class="btn-txt"><b>引力挤压</b><i>握拳</i></span>
+      <span class="btn-txt"><b>Gravity Crush</b><i>fist</i></span>
     </button>
     <button id="foil" class="btn btn-strike btn-foil" type="button">
       <span class="btn-ico" data-ico="palm"></span>
-      <span class="btn-txt"><b>二向箔投放</b><i>摊开手掌</i></span>
+      <span class="btn-txt"><b>Dual-Vector Foil</b><i>open palm</i></span>
     </button>
   </div>
 </section>
 
-<section class="cam" id="cam" aria-label="手势输入">
+<section class="cam" id="cam" aria-label="Gesture input">
   <div class="cam-head">
-    <span class="cam-title">手势输入</span>
-    <span id="gestState" class="cam-state">未启用</span>
+    <span class="cam-title">GESTURES</span>
+    <span id="gestState" class="cam-state">Off</span>
+    <button id="camMin" class="cam-min" type="button" aria-label="Minimize" title="Minimize">–</button>
   </div>
   <div class="cam-body">
     <video id="video" playsinline muted></video>
     <canvas id="hand"></canvas>
-    <div id="camHint" class="cam-hint">开启摄像头后<br>握拳 / 摊掌并稳住即可发动<br>其余手势可拨动星球<br>开启后可进入生存模式</div>
+    <div id="camHint" class="cam-hint">Turn on the camera<br>Fist / open palm, hold still to strike<br>Other gestures spin the planet<br>Then enter Survival</div>
   </div>
-  <button id="camBtn" class="btn btn-ghost btn-sm" type="button">开启摄像头</button>
+  <button id="camBtn" class="btn btn-ghost btn-sm" type="button">Turn on camera</button>
   <input id="userName" class="cam-name" type="text" maxlength="16" autocomplete="off" spellcheck="false"
-         placeholder="观测者代号" aria-label="观测者代号">
-  <button id="survivalBtn" class="btn btn-ghost btn-sm" type="button">开始生存</button>
-  <div id="survHint" class="cam-note">竖起食指指到即射击 · 每颗 5 分<br>✌️ 每停住 0.5 s 布一块护盾，各挡两颗、只撑 7 秒 · 拦下 2 分<br>握拳 / 摊掌收手 +20 · 烧穿分照算<br>100 分 半神 · 250 分 神</div>
+         placeholder="Observer callsign" aria-label="Observer callsign">
+  <button id="survivalBtn" class="btn btn-ghost btn-sm" type="button">Start Survival</button>
 </section>
 
 <div id="flash" class="flash" aria-hidden="true"></div>
 <div id="verdict" class="verdict" aria-hidden="true">
   <div class="verdict-box">
-    <a id="portrait" class="portrait" target="_blank" rel="noopener" aria-label="打开观测者画像">
-      <img id="portraitImg" alt="观测者画像"><span class="portrait-wait">生成画像…</span>
+    <a id="portrait" class="portrait" target="_blank" rel="noopener" aria-label="Open observer portrait">
+      <img id="portraitImg" alt="Observer portrait"><span class="portrait-wait">Generating portrait…</span>
     </a>
     <p id="verdictText"></p>
     <div id="portraitMeta" class="portrait-meta"></div>
-    <button id="again" class="btn btn-ghost" type="button">下一个样本</button>
+    <button id="again" class="btn btn-ghost" type="button">Next specimen</button>
   </div>
 </div>
 
