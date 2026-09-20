@@ -259,9 +259,18 @@ def _walk_image(o):                                              # Interactions 
     return None
 
 def gen_portrait(jpeg_b64, tier, emotion, score=0):
+    """带强度段生成；模型偶尔对最猛的那段不出图（finishReason=NO_IMAGE），就退回不带强度段再试一次。"""
+    power = power_of(tier, score)[1]
+    try: return _gen_portrait(jpeg_b64, tier, emotion, power)
+    except RuntimeError as e:
+        if 'NO_IMAGE' not in str(e) or not power: raise
+        print(f'画像：强度段被拒（{e}），退回基础提示词', file=sys.stderr, flush=True)
+        return _gen_portrait(jpeg_b64, tier, emotion, '')
+
+def _gen_portrait(jpeg_b64, tier, emotion, power):
     model = models()['image']
     if not model: raise RuntimeError('no image model')
-    prompt = (PORTRAIT[tier] + power_of(tier, score)[1] + STYLE).format(emotion=emotion or 'as seen in the photo')
+    prompt = (PORTRAIT[tier] + power + STYLE).format(emotion=emotion or 'as seen in the photo')
     parts = [{'text': prompt}, {'inline_data': {'mime_type': 'image/jpeg', 'data': jpeg_b64}}]
     # 1) 经典 generateContent。参数按梯子降级：带尺寸 → 只带宽高比 → 不带 imageConfig（老模型） → 要求带 TEXT
     last = ''
