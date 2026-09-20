@@ -126,6 +126,10 @@ body{
   padding-bottom:7px; border-bottom:1px solid var(--line);
 }
 .log-src{font-family:var(--mono); font-size:9px; color:var(--ink-3); letter-spacing:.08em}
+/* 榜右上的「清榜」：第一下只是举起来（红色 CONFIRM?），4 秒内再按一下才清 */
+.log-act{font:9px var(--mono); letter-spacing:.08em; color:var(--ink-3); background:transparent; border:0; padding:0; cursor:pointer}
+.log-act:hover{color:var(--ink)}
+.log-act.is-arm{color:var(--alert)}
 .log{
   list-style:none; margin:0; padding:0; display:flex; flex-direction:column-reverse; gap:8px;
   max-height:min(28vh,190px); overflow-y:auto; scrollbar-width:thin;

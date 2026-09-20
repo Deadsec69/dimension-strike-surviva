@@ -300,6 +300,24 @@ def board_update(entry_id, patch):
         return e
 def board_get(entry_id):
     return next((e for e in board_read() if e.get('id') == entry_id), None)
+def board_clear():
+    """清榜：榜上引用的画像文件一并删（只删 runs/ 里的），榜写成 []。
+    还在后台生成的画像：board_update 找不到 id 就不写回，落盘的那张成孤儿文件，下次清榜也不碰。"""
+    with _block:
+        rows = board_read(); removed = 0
+        root = os.path.realpath(RUNS)
+        for e in rows:
+            rel = e.get('portrait')
+            if not rel: continue
+            path = os.path.realpath(os.path.join(ROOT, rel))
+            if not path.startswith(root + os.sep): continue          # 只删 runs/ 里的
+            try: os.remove(path); removed += 1
+            except FileNotFoundError: pass
+        tmp = BOARD + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump([], f); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, BOARD)
+        return {'cleared': len(rows), 'files': removed}
 def board_top(rows, limit): return sorted(rows, key=lambda e: (-e.get('score', 0), e.get('ts', '')))[:limit]
 
 # ── 结算流水线：画像失败不算请求失败 ──
@@ -376,6 +394,9 @@ class H(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.partition('?')[0]
+        if path == '/api/leaderboard/clear':
+            try: return self._json(200, {'ok': True, **board_clear()})
+            except Exception as e: return self._json(500, {'error': str(e)[:200]})
         if path != '/api/finish': return self._json(404, {'error': 'no such endpoint'})
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0: return self._json(400, {'error': 'empty body'})

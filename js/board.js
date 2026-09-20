@@ -39,6 +39,25 @@ export class Board {
     this.hasKey = false;
     this.rows = []; this.local = []; this.run = null; this.seq = 0;
     this.capture = captureSnapshot;   // 无头测试可替换：__ds.board.capture = () => B64
+    // 清榜要按两下：第一下举起来（CONFIRM?），4 秒内第二下才清。不用 confirm()：那是浏览器的弹窗，不是这台控制台的
+    const btn = this.el.boardClear;
+    if(btn) btn.addEventListener('click', () => {
+      if(btn.classList.contains('is-arm')){ this._disarm(); this.clearBoard(); return; }
+      btn.classList.add('is-arm'); btn.textContent = 'CONFIRM?';
+      this._armT = setTimeout(() => this._disarm(), 4000);
+    });
+  }
+  _disarm(){ const btn = this.el.boardClear; clearTimeout(this._armT); if(btn){ btn.classList.remove('is-arm'); btn.textContent = 'CLEAR'; } }
+
+  /* 清榜：服务器上的行与画像文件一起删；没有服务器就只清本页的行 */
+  async clearBoard(){
+    try{
+      const r = await fetch('api/leaderboard/clear', { method:'POST', signal:tmo(FINISH_MS) });
+      if(r.ok) this.rows = [];
+      else console.warn('[board] clear →', r.status);
+    }catch(e){ console.warn('[board] clear failed:', e.message); }
+    this.local = [];
+    this.render(this.run?.entry); this._toggle();
   }
 
   username(){
@@ -62,7 +81,7 @@ export class Board {
       const r = await fetch('api/leaderboard?limit=8', { cache:'no-store', signal:tmo(PROBE_MS) });
       if(r.ok) this.rows = (await r.json()).leaderboard || [];
     }catch{}
-    this.render(this.run?.entry);
+    this._toggle(); this.render(this.run?.entry);
     // 榜上还有画像没生成完的行（也许是上一次会话留下的）：过会儿再来看
     clearTimeout(this._refreshT);
     if(this.rows.some(e => e.pending)) this._refreshT = setTimeout(() => this.refresh(), BOARD_REFRESH_MS);
@@ -159,7 +178,7 @@ export class Board {
       document.createTextNode(`\u2003Mood ${e.emotion || 'unread'}` + why));
   }
 
-  _toggle(){ document.body.classList.toggle('has-board', !!this.online || this.local.length > 0); }
+  _toggle(){ document.body.classList.toggle('has-board', this.rows.length + this.local.length > 0); }   // 空榜不占地方
 
   render(me){
     const rows = [...this.rows, ...this.local]

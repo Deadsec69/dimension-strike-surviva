@@ -146,5 +146,37 @@
   "ts": "2026-09-21T01:33:17+05:30",
   "ending": "heat",
   "warnings": []
+ },
+ {
+  "id": "1a0c0813740-c5c8",
+  "username": "dui",
+  "score": 220,
+  "kills": 40,
+  "blocks": 10,
+  "elapsed": 116.1,
+  "tier": "demigod",
+  "emotion": "focused",
+  "emotion_zh": "专注",
+  "portrait": "runs/20260921-015821_dui_demigod.jpg",
+  "pending": false,
+  "ts": "2026-09-21T01:58:08+05:30",
+  "ending": "heat",
+  "warnings": []
+ },
+ {
+  "id": "1a0c0826709-b641",
+  "username": "dui",
+  "score": 12,
+  "kills": 0,
+  "blocks": 6,
+  "elapsed": 48.6,
+  "tier": "human",
+  "emotion": "focused",
+  "emotion_zh": "专注",
+  "portrait": "runs/20260921-015939_dui_human.jpg",
+  "pending": false,
+  "ts": "2026-09-21T01:59:26+05:30",
+  "ending": "heat",
+  "warnings": []
  }
 ]
