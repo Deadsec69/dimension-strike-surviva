@@ -16,8 +16,8 @@ ROOT  = os.path.dirname(os.path.abspath(__file__))
 RUNS  = os.path.join(ROOT, 'runs')
 BOARD = os.path.join(RUNS, 'leaderboard.json')
 MAX_BODY  = 2 * 1024 * 1024        # 640×480 JPEG@0.85 约 60~120KB；2MB 是硬上限
-GOD_SCORE = 250                    # 与 js/board.js 保持一致：五十颗小行星的分（每颗 5）
-TIERS = ('devil', 'human', 'god')
+GOD_SCORE, DEMIGOD_SCORE = 250, 100   # 与 js/board.js 保持一致：五十颗 / 二十颗小行星的分（每颗 5，时间不给分）
+TIERS = ('devil', 'human', 'demigod', 'god')
 IMAGE_ASPECT = '16:9'                                  # 横幅：人在中间三分之一，环境铺开
 IMAGE_SIZE = os.environ.get('GEMINI_IMAGE_SIZE', '1K')  # 1K 的 16:9 约 1344×768；2K 更锐但慢一倍
 API = 'https://generativelanguage.googleapis.com/v1beta/'
@@ -158,6 +158,14 @@ PORTRAIT = {
               "sparks and ash in the air, and shards of a broken blue planet drifting past in the background. "
               "Lighting: deep reds and oranges with a blue-white heat rim, but a warm fire key light keeps the face bright and clear. "
               "Mood: menacing, powerful, beautiful; never gory." + STYLE),
+    'demigod': ("Reimagine the person in this photo as a demigod — half-ascended, between human and god, a warrior-saint. "
+              "Wardrobe: burnished gold half-armor over a dark travel cloak, veins of pale light glowing along one arm and up the side "
+              "of the neck and face. Effects: a crescent — a partial, not yet complete — ring of light floating behind the head, "
+              "and a single wing of light spreading from one shoulder only. "
+              "Props: a sword of light planted point-down under one hand, a small glowing planet hovering above the other open palm. "
+              "Setting: a mountain summit above a sea of clouds at dawn, distant lightning in storm clouds on one side, "
+              "pale gold and storm-blue palette. Lighting: dawn light on the face, bright and clear. "
+              "Mood: resolute, on the threshold of something greater." + STYLE),
     'god':   ("Reimagine the person in this photo as a radiant, angelic god-like higher-dimensional observer. "
               "Props and effects: a large luminous golden ring — an angelic halo — floating upright behind the head and shoulders, "
               "with two smaller concentric rings of light turning around it, softly glowing runes along the rings; "
@@ -299,10 +307,11 @@ def finish(body):
     ending = body.get('ending')
     if ending not in ('self', 'heat'): raise ValueError('ending 只能是 self | heat（中途退出不上报）')
     username = safe_name(body.get('username'))
-    score, kills = int(body.get('score') or 0), int(body.get('kills') or 0)
+    score, kills, blocks = int(body.get('score') or 0), int(body.get('kills') or 0), int(body.get('blocks') or 0)
     elapsed = round(float(body.get('elapsed') or 0), 1)
     tier = body.get('tier') if body.get('tier') in TIERS else \
-           ('god' if score >= GOD_SCORE else 'devil' if ending == 'self' else 'human')
+           ('god' if score >= GOD_SCORE else 'demigod' if score >= DEMIGOD_SCORE
+            else 'devil' if ending == 'self' else 'human')
     snap = body.get('snapshot') or None
     if snap and snap.startswith('data:'): snap = snap.split(',', 1)[1]     # 客户端传纯 base64；dataURL 也收
     warn = []
@@ -310,7 +319,7 @@ def finish(body):
     elif not snap:    warn.append('no_snapshot')
     pending = not warn
     entry = {'id': f'{int(time.time() * 1000):x}-{os.urandom(2).hex()}', 'username': username,
-             'score': score, 'kills': kills, 'elapsed': elapsed, 'tier': tier,
+             'score': score, 'kills': kills, 'blocks': blocks, 'elapsed': elapsed, 'tier': tier,
              'emotion': None, 'emotion_zh': None, 'portrait': None, 'pending': pending,
              'ts': datetime.now().astimezone().isoformat(timespec='seconds'), 'ending': ending}
     rows = board_append(entry)                        # 分先入账、立刻回；画像在后台慢慢来（Gemini 有时要几分钟）

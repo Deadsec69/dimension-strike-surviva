@@ -7,14 +7,22 @@
 
 import * as THREE from 'three';
 import { NOISE } from './planet.js';
+import { tierOf, TIER_ZH, TIER_EN } from './board.js';
 
 /* ── 节奏 ── */
 const MAX_ROCKS  = 64;                  // InstancedMesh 容量。同屏很少超过 8，64 是零成本的余量
 const SPAWN_R    = 2.8;                 // 16:9 下画面半宽 2.58：从画外一点点进来；固定半径 ⇒ 落地时间一致
-const SPAWN_T0 = 1.6, SPAWN_T1 = 0.42, SPAWN_RAMP = 60;   // 1.6s 一颗起步，一分钟内压到 0.42s；再往后还会收到 0.25s 并开始一次两颗
+/* 难度只看分（分只来自陨石），不看时间：起步慢；125 分（二十五颗）快一点；200 分（四十颗）再快；
+   往后每 100 分再加一成，封顶。目标值用 τ=4s 逼近，换档读作「快了一点」而不是跳变；已经在飞的石头不改速。 */
+const STAGES = [
+  { at:0,   v:0.32, iv:1.9, dbl:0.00 },
+  { at:125, v:0.42, iv:1.4, dbl:0.15 },
+  { at:200, v:0.55, iv:1.0, dbl:0.35 }
+];
+const STAGE_STEP = 100, STAGE_GAIN = 0.10, V_CAP = 0.8, IV_FLOOR = 0.7, DBL_CAP = 0.5;
+const STAGE_TAU  = 4;
 const SPAWN_JIT  = 0.35;                // 间隔 ±35%：去掉节拍器感
-const DOUBLE_T0 = 30, DOUBLE_T1 = 120;  // 30s 起有概率一次两颗，120s 后六成
-const V0 = 0.45, V1 = 1.7, V_RAMP = 80, V_JIT = 0.15;    // 初速曲线；飞行 3.0s → 1.0s
+const V_JIT      = 0.15;
 const G          = 0.12;                // 向心常加速度（单位/秒²）：偏心路径弯成弧、慢石头越落越快；真万有引力在 2.8 处几乎为零、贴地又爆掉
 const AIM_SPREAD = 0.75;                // 目标点取盘面内半径 0.75 的圆盘：必中（<1），又不是每颗都直奔球心
 const R_MIN = 0.05, R_MAX = 0.13;       // 屏幕直径约 37→97 px @1080p：够指、不遮
@@ -22,6 +30,7 @@ const R_MIN = 0.05, R_MAX = 0.13;       // 屏幕直径约 37→97 px @1080p：�
 const HEAT_BASE = 6, HEAT_K = 3600;     // ΔT = 6 + 3600·r²：9K…67K。用 r³ 小石头就等于没砸
 const COOL       = 5;                   // K/s。晚期七成击落率下热流入约 15K/s：饱和后一分钟内结束
 const T0 = 288, T_LIMIT = 640;          // 640：熔融（620→900）刚起、hot3 已播——挤压落在一颗正在开裂的星上
+export const T_WARN = 560, T_CRIT = 610;  // 再挨两下 / 再挨一下：屏幕正中要喊
 const P_PER_PLATE = 0.5;                // 两块 → 宜居 0.61，七块 → 0.10。代价要疼，才是决策
 /* ── 护盾 ── */
 const PLATE_HP = 2, PLATE_W = 0.42, PLATE_H = 0.28, PLATE_T = 0.02, PLATE_MAX = 8;
@@ -38,8 +47,8 @@ const HIT_PX_MIN = 46, HIT_PX_K = 2.6, HIT_PX_PAD = 22;   // 命中圈 = max(46,
 /* ── 击碎。石头不是消失，是碎成一把发红的渣：碎片走同一套实例渲染，快速翻滚、飞散、缩小、冷却 ── */
 const SHARD_N0 = 7, SHARD_NK = 30;      // 碎片数 = 7 + 30·r
 const SHARD_LIFE = [0.35, 0.6];
-/* ── 计分。每秒 10；击落一颗 5，护盾拦下一颗 2；自己结束（握拳 / 摊掌）+20 = 四颗；
-   行星先你一步死去 = 0：分要自己收手才算数 ── */
+/* ── 计分。只算陨石：击落一颗 5，护盾拦下一颗 2；时间不给分。自己结束（握拳 / 摊掌）+20 = 四颗；
+   行星先你一步死去分照算，只是没有这 +20 ── */
 const KILL_POINTS = 5, BLOCK_POINTS = 2, SELF_BONUS = 4 * KILL_POINTS;
 /* ── 特效 ── */
 const ENTRY_R0 = 1.7, ENTRY_R1 = 1.05;  // 进入辉光从 1.7 半径起烧，到贴地烧满
@@ -307,6 +316,7 @@ export class Survival {
     Object.assign(this, {
       heat:0, T:T0, P:1, platesMade:0, elapsed:0, kills:0, blocks:0, impacts:0, score:0, over:false,
       t:0, fxT:0, spawnT:1.2, seq:0,
+      level:0, curV:STAGES[0].v, curIv:STAGES[0].iv, curDbl:0,   // level = 难度档（this.stage 是舞台）
       cur:null, aimAt:0, target:null, dwell:0, gap:0, shieldK:0, shieldArmed:true, vGap:1, fireCool:0,
       ending:null
     });
@@ -346,23 +356,27 @@ export class Survival {
     this.aimAt = performance.now();
   }
 
-  /* 一局的终点。self = 你自己按下了武器（+100，四颗的分）；heat = 行星先你一步死去（0 分：分要自己收手才算数）。
+  /* 一局的终点。self = 你自己按下了武器（+20，四颗的分）；heat = 行星先你一步死去（分照算，没有奖励）。
      幂等：热死那条路先标记 'heat' 再走 fire()，随后 fire() 里的 finish('self') 就不作数。 */
   finish(ending){
     if(this.ending) return;
     this.ending = ending;
     if(ending === 'self') this.score += SELF_BONUS;
-    else if(ending === 'heat') this.score = 0;
     this.over = true;
     this.aim(null);
   }
 
-  verdictLine(){
-    const base = `坚持 ${this.elapsed.toFixed(1)} 秒，击落 ${this.kills} 颗` + (this.blocks ? `，拦下 ${this.blocks} 颗` : '');
-    if(this.ending === 'heat') return `${base}。行星先你一步死去——得分 0。`;
-    if(this.ending === 'self') return `${base}，你亲手结束了它 +${SELF_BONUS}。得分 ${this.score.toLocaleString('en-US')}。`;
-    return `${base}。得分 ${this.score.toLocaleString('en-US')}。`;
+  get tier(){ return tierOf(this.ending || 'self', this.score); }   // 局中：假如现在收手，会是什么评级
+
+  /* 判词：生存模式里说的是你，不是他们。三行：评级、分与战绩、怎么结束的。 */
+  verdictCard(){
+    const t = this.tier;
+    const l1 = `评级 ${TIER_ZH[t]} · ${TIER_EN[t]}`;
+    const l2 = `得分 ${this.score.toLocaleString('en-US')} · 坚持 ${this.elapsed.toFixed(1)} 秒 · 击落 ${this.kills} · 拦下 ${this.blocks}`;
+    const l3 = this.ending === 'heat' ? '行星先你一步死去' : `你亲手结束了它 +${SELF_BONUS}`;
+    return `${l1}\n${l2}\n${l3}`;
   }
+  verdictLine(){ return this.verdictCard(); }
 
   update(dt){
     if(!this.running) return;
@@ -379,10 +393,30 @@ export class Survival {
     this._moveRocks(dt);
     this._dwell(dt);
     this._beams(dt);
-    this.score = Math.floor(this.elapsed) * 10 + this.kills * KILL_POINTS + this.blocks * BLOCK_POINTS;   // 先记分，再判生死：_cool 里的 finish() 要有最后一句话
+    this.score = this.kills * KILL_POINTS + this.blocks * BLOCK_POINTS;   // 先记分，再判生死：_cool 里的 finish() 要有最后一句话
+    this._stage(dt);
     this._cool(dt);
     this._sync(dt);
     this._flavour();
+  }
+
+  /* ── 难度：按分定档，目标值慢慢逼近 ── */
+  _stageTarget(){
+    let s = 0;
+    for(let i = 0; i < STAGES.length; i++) if(this.score >= STAGES[i].at) s = i;
+    const top = STAGES[STAGES.length - 1];
+    const extra = s === STAGES.length - 1 ? Math.floor((this.score - top.at) / STAGE_STEP) : 0;   // 200 分之后每 100 分再加一成
+    const k = Math.pow(1 + STAGE_GAIN, extra);
+    return { stage:s + extra, v:Math.min(V_CAP, STAGES[s].v * k), iv:Math.max(IV_FLOOR, STAGES[s].iv / k),
+             dbl:Math.min(DBL_CAP, STAGES[s].dbl + (extra ? 0.15 : 0)) };
+  }
+  _stage(dt){
+    const t = this._stageTarget();
+    this.level = t.stage;
+    const a = 1 - Math.exp(-dt / STAGE_TAU);
+    this.curV  += (t.v  - this.curV)  * a;
+    this.curIv += (t.iv - this.curIv) * a;
+    this.curDbl += (t.dbl - this.curDbl) * a;
   }
 
   /* ── 生成 ── */
@@ -390,15 +424,13 @@ export class Survival {
     this.spawnT -= dt;
     while(this.spawnT <= 0 && this.liveRocks() < MAX_ROCKS - 12){
       this._spawn();
-      const e = this.elapsed;
-      if(Math.random() < ss(DOUBLE_T0, DOUBLE_T1, e) * 0.6) this._spawn();   // 晚期一次两颗
-      const iv = lerp(SPAWN_T0, SPAWN_T1, ss(0, SPAWN_RAMP, e)) * lerp(1, 0.6, ss(60, 180, e));   // 三分钟时约 0.25s
-      this.spawnT += iv * (1 - SPAWN_JIT + 2 * SPAWN_JIT * Math.random());
+      if(Math.random() < this.curDbl) this._spawn();   // 高档一次两颗
+      this.spawnT += this.curIv * (1 - SPAWN_JIT + 2 * SPAWN_JIT * Math.random());
     }
   }
 
   _spawn(){
-    const e = this.elapsed, cam = this.stage.camera;
+    const cam = this.stage.camera;
     // 在过球心、垂直视轴的平面上取一个环：从画面边缘进来，也留在景深的合焦带里
     const right = this._v1.setFromMatrixColumn(cam.matrixWorld, 0);
     const up    = this._v2.setFromMatrixColumn(cam.matrixWorld, 1);
@@ -407,10 +439,10 @@ export class Survival {
     // 瞄准盘面内一点而不是球心：保证命中（0.75 < 1），路径也不全是一条条直奔中心的射线
     const ta = Math.random() * Math.PI * 2, tr = Math.sqrt(Math.random()) * AIM_SPREAD;
     const tgt = this._v3.set(0, 0, 0).addScaledVector(right, Math.cos(ta) * tr).addScaledVector(up, Math.sin(ta) * tr);
-    const speed = lerp(V0, V1, ss(0, V_RAMP, e)) * (1 - V_JIT + 2 * V_JIT * Math.random());
+    const speed = this.curV * (1 - V_JIT + 2 * V_JIT * Math.random());
     const v = tgt.sub(p).normalize().multiplyScalar(speed);
     // 小石头多、大石头少；晚期指数往 1 走，大块变多
-    const r = R_MIN + (R_MAX - R_MIN) * Math.pow(Math.random(), 1.6 - 0.5 * ss(60, 220, e));
+    const r = R_MIN + (R_MAX - R_MIN) * Math.pow(Math.random(), 1.6 - 0.15 * Math.min(3, this.level));   // 高档大块变多
     this._spawnAt(p, v, r);
     this._say('sv_sight');
   }

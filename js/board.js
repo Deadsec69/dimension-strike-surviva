@@ -5,16 +5,18 @@
 // 抓拍发生在一局结束的那一帧（fire() 里），不在判词那一刻：判词要等 2.7 秒的碎裂动画，
 // 到那时脸上的反应已经散了。
 
-const GOD_SCORE = 250;                                   // 与 serve.py 保持一致：五十颗小行星的分（每颗 5）
-const TIER_ZH = { devil:'魔', god:'神', human:'人' };
-const TIER_EN = { devil:'DEVIL', god:'GOD', human:'HUMAN' };
+/* 评级（与 serve.py 保持一致）。分只来自陨石：击落 5、拦下 2，烧穿也照算。
+   ≥250 神、≥100 半神；不到 100 分：自己收手的 = 魔，烧穿的 = 人。 */
+export const GOD_SCORE = 250, DEMIGOD_SCORE = 100;
+export const TIER_ZH = { devil:'魔', human:'人', demigod:'半神', god:'神' };
+export const TIER_EN = { devil:'DEVIL', human:'HUMAN', demigod:'DEMIGOD', god:'GOD' };
 const PROBE_MS = 8000, FINISH_MS = 20000;               // 结算立刻回（分先入账），画像在后台生成、这边轮询
 const POLL_MS = 3000, POLL_MAX_MS = 20 * 60000;        // Gemini 慢起来实测要十分钟以上：轮询二十分钟，之后当失败
 const BOARD_REFRESH_MS = 10000;                        // 榜上还有在生成的行时，每 10 秒刷一次
 const tmo = ms => AbortSignal.timeout(ms);
 
 export function tierOf(ending, score){
-  return score >= GOD_SCORE ? 'god' : ending === 'self' ? 'devil' : 'human';
+  return score >= GOD_SCORE ? 'god' : score >= DEMIGOD_SCORE ? 'demigod' : ending === 'self' ? 'devil' : 'human';
 }
 
 /* 从直播 <video> 抓一张 640×480 JPEG（纯 base64）。面板上是 scaleX(-1) 的镜像，
@@ -68,17 +70,17 @@ export class Board {
   }
 
   /* fire() 那一刻调用：抓拍、定档、立刻上报。判词 2.7 秒后才出现，到时候看 run.state。 */
-  endRun({ ending, snapshot, score, kills, elapsed }){
+  endRun({ ending, snapshot, score, kills, blocks = 0, elapsed }){
     const run = this.run = {
       id:++this.seq, username:this.username(), ending, tier:tierOf(ending, score),
-      score, kills, elapsed:+elapsed.toFixed(1), snapshot, state:'pending', entry:null
+      score, kills, blocks, elapsed:+elapsed.toFixed(1), snapshot, state:'pending', entry:null
     };
     this._submit(run);                // 不 await
     return run;
   }
 
   async _submit(run){
-    const payload = { username:run.username, score:run.score, kills:run.kills, elapsed:run.elapsed,
+    const payload = { username:run.username, score:run.score, kills:run.kills, blocks:run.blocks, elapsed:run.elapsed,
                       ending:run.ending, tier:run.tier, snapshot:run.snapshot };
     try{
       // 不看 online：探测超时不该让整局白抓。真没有服务器（Pages）这里会立刻 404，一样走降级
@@ -93,7 +95,7 @@ export class Board {
     }catch(e){                        // 服务器不在 / 超时 / 5xx：原片 + 本地行，不落盘
       console.warn('[结算] 本地降级：', e.message);
       run.state = 'failed'; run.error = e.message;
-      run.entry = { username:run.username, score:run.score, kills:run.kills, elapsed:run.elapsed, ending:run.ending,
+      run.entry = { username:run.username, score:run.score, kills:run.kills, blocks:run.blocks, elapsed:run.elapsed, ending:run.ending,
                     tier:run.tier, portrait:null, emotion:null, emotion_zh:null,
                     ts:new Date().toISOString(), local:true, id:'local-' + run.id };
       this.local.push(run.entry);
@@ -175,7 +177,7 @@ export class Board {
       }
       const mk = (cls, txt, title) => { const s = document.createElement('span'); s.className = cls; s.textContent = txt; if(title) s.title = title; return s; };
       li.append(mk('rank', String(i + 1).padStart(2, '0')), thumb,
-                mk('name', e.username, `${TIER_ZH[e.tier] || ''} · ${e.emotion_zh || e.emotion || ''} · ${e.elapsed}s · ${e.kills} 颗`),
+                mk('name', e.username, `${TIER_ZH[e.tier] || ''} · ${e.emotion_zh || e.emotion || ''} · ${e.elapsed}s · 击落 ${e.kills}` + (e.blocks != null ? ` · 拦下 ${e.blocks}` : '')),
                 mk(`tag is-${e.tier}`, TIER_EN[e.tier] || ''),
                 mk('score num', Number(e.score || 0).toLocaleString('en-US')));
       return li;
