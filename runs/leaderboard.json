@@ -114,5 +114,21 @@
   "ending": "heat",
   "warnings": [],
   "blocks": 12
+ },
+ {
+  "id": "1a0c056fce1-5db2",
+  "username": "gra",
+  "score": 114,
+  "kills": 22,
+  "blocks": 2,
+  "elapsed": 92.2,
+  "tier": "demigod",
+  "emotion": "focused",
+  "emotion_zh": "专注",
+  "portrait": "runs/20260921-011213_gra_demigod.jpg",
+  "pending": false,
+  "ts": "2026-09-21T01:12:01+05:30",
+  "ending": "heat",
+  "warnings": []
  }
 ]

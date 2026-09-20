@@ -35,14 +35,16 @@ const T0 = 288, T_LIMIT = 640;          // 640：熔融（620→900）刚起、h
 export const T_WARN = 560, T_CRIT = 610;  // 再挨两下 / 再挨一下：屏幕正中要喊
 const P_PER_PLATE = 0.5;                // 两块 → 宜居 0.61，七块 → 0.10。代价要疼，才是决策
 /* ── 护盾 ── */
-const PLATE_HP = 2, PLATE_W = 0.42, PLATE_H = 0.28, PLATE_T = 0.02, PLATE_MAX = 8;
+const PLATE_HP = 1, PLATE_W = 0.42, PLATE_H = 0.28, PLATE_T = 0.02, PLATE_MAX = 8;   // 一块挡一颗；满 8 块时新的顶掉最旧的
 const PLATE_RMIN = 1.35, PLATE_RMAX = 2.3;   // 下限在大气壳（1.14）外留余量；上限在画内且在生成环内——石头到盾前已可见
 const PLATE_TILT = 0.6;                 // 弧度。盾面从「正对镜头」向「径向外」倾 35°：既看得见面，又迎着来石
 /* ── 停留 ── */
-const DWELL_FIRE = 0, DWELL_SHIELD = 0.45;      // 射击不停留：指到就打；护盾仍要停住
+const DWELL_FIRE = 0, DWELL_SHIELD = 0.5;       // 射击不停留：指到就打；护盾要停住——✌️ 一直比着，每 0.5s 落一块
 const DWELL_GAP  = 0.08;                // 分类器抖一帧、石头翻滚时擦出命中圈：这么久以内算没离开
 const DWELL_DECAY = 2.5;                // 进度环退回去的速度，不是瞬间清零
-const SHIELD_REARM = 0.15;              // ✌️ 松开这么久才重新武装：一次比划一块
+/* 护盾的空档比射击宽：✌️ 的分数在迟滞带里抖一下、摄像头卡一帧，都只暂停进度环，不放掉。
+   进度只在确认是 ✌️ 的帧里长，所以划过去的手仍然放不下盾。 */
+const SHIELD_GAP = 0.25, SHIELD_DECAY = 1.2;
 const FIRE_COOL  = 0.12;                // 两发之间的最短间隔：光束先落地，准星再找下一颗；扫过一片也不会一帧全清
 const AIM_STALE  = 0.25;                // 秒。摄像头掉帧超过这么久视为无手
 const HIT_PX_MIN = 46, HIT_PX_K = 2.6, HIT_PX_PAD = 22;   // 命中圈 = max(46, 投影半径×2.6 + 22) px：手比鼠标抖，圈要宽
@@ -157,12 +159,12 @@ void main(){
   float ndl = abs(dot(N, L));                                     // 薄片两面受光
   float fres = pow(1.0 - abs(dot(N, V)), 2.0);
   vec3 body = vec3(0.12, 0.30, 0.56) * (0.25 + 0.75 * ndl) + vec3(0.20, 0.42, 0.70) * fres * 0.5;
-  // 裂纹只在 HP 掉到 1 后出现。不发光：那是缺损，不是能量
-  float cr = pow(clamp(1.0 - abs(fbm3(vec3(vUv * 6.0, uSeed))) * 7.0, 0.0, 1.0), 2.0) * step(uHP, 1.5);
+  // 裂纹只在 HP 掉到 0 后出现（一块挡一颗：活着的盾没有裂纹）。不发光：那是缺损，不是能量
+  float cr = pow(clamp(1.0 - abs(fbm3(vec3(vUv * 6.0, uSeed))) * 7.0, 0.0, 1.0), 2.0) * step(uHP, 0.5);
   body = mix(body, vec3(0.55, 0.62, 0.70), cr * 0.8);
   float born = smoothstep(0.0, 0.25, uTime - uBorn);              // 生成那一下边框闪亮
   vec3 col = body + vec3(0.30, 0.62, 1.15) * edge * (2.0 + 2.5 * (1.0 - born));   // 边框 >1.1 交给 bloom；冷蓝属于观测者
-  float a = (0.55 + 0.45 * edge) * mix(0.75, 1.0, uHP * 0.5);
+  float a = (0.55 + 0.45 * edge) * mix(0.75, 1.0, min(1.0, uHP));
   gl_FragColor = vec4(col, a);
 }
 `;
@@ -319,7 +321,7 @@ export class Survival {
       heat:0, T:T0, P:1, platesMade:0, elapsed:0, kills:0, blocks:0, impacts:0, score:0, over:false,
       t:0, fxT:0, spawnT:1.2, seq:0,
       level:0, curV:STAGES[0].v, curIv:STAGES[0].iv, curDbl:0,   // level = 难度档（this.stage 是舞台）
-      cur:null, aimAt:0, target:null, dwell:0, gap:0, shieldK:0, shieldArmed:true, vGap:1, fireCool:0,
+      cur:null, aimAt:0, target:null, dwell:0, gap:0, shieldK:0, vGap:1, fireCool:0,
       ending:null
     });
   }
@@ -554,8 +556,12 @@ export class Survival {
 
   /* ── 护盾 ── */
   _placePlate(x, y){
-    const mesh = this.platePool.find(m => !m.visible);
-    if(!mesh) return;
+    let mesh = this.platePool.find(m => !m.visible);
+    if(!mesh){                                         // 满了：最旧的那块让位，别让进度环白转
+      this._burst(this.plates[0].mesh.position, COLD, null, 12);
+      this._removePlate(0);
+      mesh = this.platePool.find(m => !m.visible);
+    }
     const cam = this.stage.camera;
     const fwd = this._v1.setFromMatrixColumn(cam.matrixWorld, 2).negate();     // 视轴
     const rd  = this._cursorRay(x, y, this._v2);
@@ -670,8 +676,9 @@ export class Survival {
   _dwell(dt){
     this.fireCool = Math.max(0, this.fireCool - dt);
     const c = this.cur;
-    const stale = !c || performance.now() - this.aimAt > AIM_STALE * 1000;
-    if(stale){ this._retarget(null, dt); this._shield(null, dt); this._crosshair(null); return; }
+    const age = c ? (performance.now() - this.aimAt) / 1000 : Infinity;
+    const stale = age > AIM_STALE;
+    if(stale){ this._retarget(null, dt); this._shield(age > SHIELD_GAP ? null : c, dt); this._crosshair(null); return; }
     const W = this._size.x, H = this._size.y, cx = c.x * W, cy = c.y * H;
     let best = null, bestD = Infinity;                   // 最近的、投影距离小于命中圈的石头
     for(const k of this.rocks){
@@ -701,17 +708,17 @@ export class Survival {
     }
   }
 
+  /* ✌️ 比着不放：每满 0.5s 在准星处落一块，进度环归零再长。空档 ≤0.25s 只暂停，更久才慢慢退。 */
   _shield(c, dt){
     if(c && c.pose === 'victory'){
       this.vGap = 0;
-      if(this.shieldArmed && (this.shieldK += dt) >= DWELL_SHIELD){
+      if((this.shieldK += dt) >= DWELL_SHIELD){
         this._placePlate(c.x, c.y);
-        this.shieldArmed = false; this.shieldK = 0;
+        this.shieldK = 0;
       }
     }else{
       this.vGap += dt;
-      if(this.vGap > DWELL_GAP)    this.shieldK = Math.max(0, this.shieldK - dt * DWELL_DECAY);
-      if(this.vGap > SHIELD_REARM) this.shieldArmed = true;   // 松开才重新武装：一次比划一块，不会连发
+      if(this.vGap > SHIELD_GAP) this.shieldK = Math.max(0, this.shieldK - dt * SHIELD_DECAY);
     }
   }
 
