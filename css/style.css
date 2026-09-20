@@ -227,6 +227,14 @@ body{
 .aim.is-lock::before{opacity:1; box-shadow:0 0 12px rgba(111,168,214,.55)}
 .aim i{position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; background:var(--aim-c); box-shadow:0 0 8px var(--aim-c)}
 
+/* 熔毁预警：560K 起在画面正中喊，610K 转红急促。玩家盯着的是石头，不是左面板的读数 */
+.heat-warn{position:fixed; z-index:3; left:50%; top:18%; transform:translate(-50%,-50%); display:none; flex-direction:column; align-items:center; gap:4px;
+  padding:10px 22px; border:1px solid var(--amber); background:rgba(10,15,21,.72); backdrop-filter:blur(10px); pointer-events:none;
+  font-family:var(--cjk); color:var(--amber); text-align:center; animation:heatPulse 1.1s ease-in-out infinite}
+.heat-warn b{font-size:18px; letter-spacing:.24em} .heat-warn span{font:10px var(--mono); letter-spacing:.18em; color:var(--ink-2)}
+.heat-warn.is-on{display:flex}
+.heat-warn.is-critical{border-color:var(--alert); color:var(--alert); animation-duration:.55s; box-shadow:0 0 28px rgba(217,85,63,.45)}
+
 /* 生存模式只在摄像头开着时存在：没有手就没有准星 */
 /* 观测者代号：只在摄像头开着时出现（同 #survivalBtn），一局进行中锁住 */
 #userName{display:none}
@@ -247,6 +255,7 @@ body.is-survive .cam-name{opacity:.55; pointer-events:none}
 .portrait.is-devil{--tint:rgba(217,85,63,.85); border-color:var(--alert); box-shadow:0 0 32px rgba(217,85,63,.35)}
 .portrait.is-god{--tint:rgba(232,176,75,.75); border-color:var(--amber); box-shadow:0 0 32px rgba(232,176,75,.35)}
 .portrait.is-human{--tint:rgba(111,168,214,.35); border-color:var(--cold-dim)}
+.portrait.is-demigod{--tint:rgba(201,178,122,.6); border-color:#C9B27A; box-shadow:0 0 28px rgba(201,178,122,.3)}
 .portrait-wait{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
   font:10px var(--mono); letter-spacing:.24em; color:var(--ink); text-shadow:0 0 8px #000; animation:heatPulse 1.2s ease-in-out infinite; z-index:1}
 .portrait.is-wait .portrait-wait{display:flex}
@@ -255,6 +264,8 @@ body.is-survive .cam-name{opacity:.55; pointer-events:none}
 .portrait-meta{font-family:var(--mono); font-size:10px; letter-spacing:.22em; color:var(--ink-3); min-height:1.4em}
 .portrait-meta .tier{font-weight:600; letter-spacing:.24em}
 .tier.is-devil,.tag.is-devil{color:var(--alert)} .tier.is-god,.tag.is-god{color:var(--amber)} .tier.is-human,.tag.is-human{color:var(--cold)}
+.tier.is-demigod,.tag.is-demigod{color:#C9B27A}                           /* 半神：淡金，在冷蓝与琥珀之间 */
+#survTier{font-size:11px; letter-spacing:.12em}
 
 /* 观测者榜：只在生存模式且服务器在线（或本局已有本地行）时出现 */
 #boardTitle,#board{display:none}
@@ -268,7 +279,7 @@ body.is-survive.has-board .log{max-height:min(16vh,120px)}         /* 给榜让�
 .board .thumb{display:block; width:44px; height:25px; overflow:hidden; border:1px solid var(--line); background:var(--void-2); pointer-events:auto}   /* 16:9 缩略图 */
 .board .tag{font-size:8px; letter-spacing:.14em}
 .board .thumb img{display:block; width:100%; height:100%; object-fit:cover}
-.board .thumb.is-devil{border-color:var(--alert)} .board .thumb.is-god{border-color:var(--amber)}
+.board .thumb.is-devil{border-color:var(--alert)} .board .thumb.is-god{border-color:var(--amber)} .board .thumb.is-demigod{border-color:#C9B27A}
 .board .thumb.is-pending{animation:heatPulse 1.2s ease-in-out infinite}   /* 画像还在生成 */
 .board .name{font-family:var(--cjk); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .board .score{color:var(--cold)}

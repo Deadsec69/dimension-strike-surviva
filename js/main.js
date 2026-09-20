@@ -1,7 +1,7 @@
 // 降维打击模拟器 —— 装配
 import { PlanetStage } from './planet.js';
 import { Civilization } from './civ.js';
-import { Board } from './board.js';
+import { Board, TIER_ZH, TIER_EN } from './board.js';
 // gesture.js 走动态 import：它会拖进 11MB 的 MediaPipe 运行时和 8MB 模型，
 // 而绝大多数访客从不开摄像头。等点了「开启摄像头」再加载。
 
@@ -16,7 +16,8 @@ const el = {
   cam:$('cam'), camBtn:$('camBtn'), video:$('video'), hand:$('hand'), gestState:$('gestState'),
   again:$('again'), specId:$('specId'), specTag:$('specTag'),
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
-  survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'),
+  survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
+  heatWarn:$('heatWarn'),
   userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board')
 };
 
@@ -101,7 +102,7 @@ function fire(kind){
     survival.finish(endCause || 'self'); endCause = null;
     // 抓拍必须在此刻：判词要等 2.7 秒碎裂动画，那时脸上的反应已经散了
     board.endRun({ ending:survival.ending, snapshot:board.capture(el.video),
-                   score:survival.score, kills:survival.kills, elapsed:survival.elapsed });
+                   score:survival.score, kills:survival.kills, blocks:survival.blocks, elapsed:survival.elapsed });
   }
   return true;
 }
@@ -118,7 +119,8 @@ stage.onShock = () => {
 
 function showVerdict(){
   if(el.verdict.classList.contains('is-on')) return;
-  el.verdictText.textContent = civ.verdict() + (survivalOn ? '\n' + survival.verdictLine() : '');
+  // 生存模式的判词说的是你（评级、分、怎么结束的）；沙盒里才是他们的故事
+  el.verdictText.textContent = survivalOn ? survival.verdictCard() : civ.verdict();
   el.verdict.classList.add('is-on');
   el.verdict.setAttribute('aria-hidden', 'false');
   board.showVerdict();
@@ -296,6 +298,7 @@ function exitSurvival(){
   el.reset.textContent = '恢复初始参数';
   el.envTag.textContent = 'ENV';
   el.tempOut.classList.remove('is-hot', 'is-critical');
+  el.heatWarn.classList.remove('is-on', 'is-critical');
   el.temp.value = 288; el.pres.value = 50;
   readControls(); envTxt = '';                  // 交互权交回滑块；文明与舞台不复位，行星自己凉下来
 }
@@ -309,9 +312,12 @@ window.__ds.enterSurvival = enterSurvival; window.__ds.exitSurvival = exitSurviv
 
 let survTxt = '';
 function writeSurv(){
-  const txt = `${survival.elapsed.toFixed(1)}|${survival.kills}|${survival.blocks}|${survival.shields}|${survival.score}`;
+  const tier = survival.tier;
+  const txt = `${survival.elapsed.toFixed(1)}|${survival.kills}|${survival.blocks}|${survival.shields}|${survival.score}|${tier}`;
   if(txt === survTxt) return;
   survTxt = txt;
+  el.survTier.textContent = `${TIER_ZH[tier]} ${TIER_EN[tier]}`;
+  el.survTier.className = `num tier is-${tier}`;
   el.survTime.textContent = survival.elapsed.toFixed(1) + ' s';
   el.survKills.textContent = survival.kills;
   el.survBlocks.textContent = survival.blocks;
@@ -359,6 +365,8 @@ function frame(now){
     writeEnv(envT, envP);
     el.tempOut.classList.toggle('is-hot', envT >= 560);        // 再挨两下
     el.tempOut.classList.toggle('is-critical', envT >= 610);   // 再挨一下
+    el.heatWarn.classList.toggle('is-on', !survival.over && envT >= 560);
+    el.heatWarn.classList.toggle('is-critical', envT >= 610);
     writeSurv();
   }
   civ.update(dt, envT, envP, stage.spinAnomaly);

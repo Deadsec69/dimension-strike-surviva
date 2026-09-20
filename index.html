@@ -11,6 +11,7 @@
 <canvas id="stage"></canvas>
 <div id="vignette"></div>
 <div id="aim" class="aim" aria-hidden="true"><i></i></div>
+<div id="heatWarn" class="heat-warn" aria-live="polite"><b>行星即将熔毁</b><span>握拳 / 摊掌收手，把分带走</span></div>
 
 <header class="brand">
   <div class="brand-mark">降维打击模拟器</div>
@@ -61,6 +62,7 @@
     <div><dt>拦截</dt><dd id="survBlocks" class="num">0</dd></div>
     <div><dt>护盾</dt><dd id="survShields" class="num">0</dd></div>
     <div><dt>得分</dt><dd id="survScore" class="num">0</dd></div>
+    <div><dt>评级</dt><dd id="survTier" class="num tier is-human">人 HUMAN</dd></div>
   </dl>
 
   <h3 id="boardTitle" class="log-title">观测者榜<span class="log-src">RUNS</span></h3>
@@ -97,7 +99,7 @@
   <input id="userName" class="cam-name" type="text" maxlength="16" autocomplete="off" spellcheck="false"
          placeholder="观测者代号" aria-label="观测者代号">
   <button id="survivalBtn" class="btn btn-ghost btn-sm" type="button">开始生存</button>
-  <div id="survHint" class="cam-note">竖起食指指到即射击 · 每颗 5 分<br>✌️ 停住 0.45 s 布下护盾 · 拦下 2 分<br>握拳 / 摊掌收手 +20，烧穿归零</div>
+  <div id="survHint" class="cam-note">竖起食指指到即射击 · 每颗 5 分<br>✌️ 停住 0.45 s 布下护盾 · 拦下 2 分<br>握拳 / 摊掌收手 +20 · 烧穿分照算<br>100 分 半神 · 250 分 神</div>
 </section>
 
 <div id="flash" class="flash" aria-hidden="true"></div>

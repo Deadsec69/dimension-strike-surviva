@@ -28,7 +28,7 @@
  {
   "id": "1a0b443e365-03d8",
   "username": "shivam_garg",
-  "score": 0,
+  "score": 25,
   "kills": 5,
   "elapsed": 32.9,
   "tier": "human",
@@ -36,7 +36,8 @@
   "emotion_zh": "专注",
   "portrait": "runs/20260918-165543_shivam_garg_human.jpg",
   "ts": "2026-09-18T16:55:43+05:30",
-  "ending": "heat"
+  "ending": "heat",
+  "blocks": 0
  },
  {
   "id": "1a0b48088cd-1141",
@@ -82,5 +83,36 @@
   "ts": "2026-09-18T18:08:55+05:30",
   "ending": "heat",
   "warnings": []
+ },
+ {
+  "id": "1a0c018d0dc-2ddd",
+  "username": "gra",
+  "score": 0,
+  "kills": 0,
+  "elapsed": 17.0,
+  "tier": "human",
+  "emotion": "blank",
+  "emotion_zh": "木然",
+  "portrait": "runs/20260921-000421_gra_human.jpg",
+  "pending": false,
+  "ts": "2026-09-21T00:04:06+05:30",
+  "ending": "heat",
+  "warnings": []
+ },
+ {
+  "id": "1a0c02c5a43-0ada",
+  "username": "gra",
+  "score": 194,
+  "kills": 34,
+  "elapsed": 136.7,
+  "tier": "demigod",
+  "emotion": "content",
+  "emotion_zh": "满足",
+  "portrait": "runs/20260921-002539_gra_human.jpg",
+  "pending": false,
+  "ts": "2026-09-21T00:25:27+05:30",
+  "ending": "heat",
+  "warnings": [],
+  "blocks": 12
  }
 ]
