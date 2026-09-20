@@ -6,7 +6,8 @@
 // 到那时脸上的反应已经散了。
 
 /* 评级（与 serve.py 保持一致）。分只来自陨石：击落 5、拦下 2，烧穿也照算。
-   ≥250 神、≥100 半神；不到 100 分：自己收手的 = 魔，烧穿的 = 人。 */
+   自己按下武器（握拳 / 摊掌）= 魔，不管多少分——哪怕已经是神的分数，动手的那一刻就是魔。
+   行星先你一步死去：≥250 神、≥100 半神、其余人。 */
 export const GOD_SCORE = 250, DEMIGOD_SCORE = 100;
 export const TIER_EN = { devil:'DEVIL', human:'HUMAN', demigod:'DEMIGOD', god:'GOD' };
 const PROBE_MS = 8000, FINISH_MS = 20000;               // 结算立刻回（分先入账），画像在后台生成、这边轮询
@@ -15,7 +16,8 @@ const BOARD_REFRESH_MS = 10000;                        // 榜上还有在生成�
 const tmo = ms => AbortSignal.timeout(ms);
 
 export function tierOf(ending, score){
-  return score >= GOD_SCORE ? 'god' : score >= DEMIGOD_SCORE ? 'demigod' : ending === 'self' ? 'devil' : 'human';
+  if(ending === 'self') return 'devil';
+  return score >= GOD_SCORE ? 'god' : score >= DEMIGOD_SCORE ? 'demigod' : 'human';
 }
 
 /* 从直播 <video> 抓一张 640×480 JPEG（纯 base64）。面板上是 scaleX(-1) 的镜像，
