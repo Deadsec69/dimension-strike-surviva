@@ -48,8 +48,67 @@ export class Board {
       btn.classList.add('is-arm'); btn.textContent = 'CONFIRM?';
       this._armT = setTimeout(() => this._disarm(), 4000);
     });
+    this._wireModal();
   }
   _disarm(){ const btn = this.el.boardClear; clearTimeout(this._armT); if(btn){ btn.classList.remove('is-arm'); btn.textContent = 'CLEAR'; } }
+
+  /* ── 全榜弹窗：点标题或任一行打开；Esc / 背景 / Close 关；Export CSV 下载当前榜 ── */
+  _wireModal(){
+    const { boardTitle, board, boardModal, boardClose, boardCsv, boardClear } = this.el;
+    if(!boardModal) return;
+    if(boardClear) boardClear.addEventListener('click', e => e.stopPropagation());   // 清榜键不开弹窗
+    boardTitle?.addEventListener('click', () => this.openModal());
+    board?.addEventListener('click', e => { if(!e.target.closest('a')) this.openModal(); });   // 缩略图仍是打开画像
+    boardClose?.addEventListener('click', () => this.closeModal());
+    boardModal.addEventListener('click', e => { if(e.target === boardModal) this.closeModal(); });
+    document.addEventListener('keydown', e => { if(e.key === 'Escape' && !boardModal.hidden) this.closeModal(); });
+    boardCsv?.addEventListener('click', () => this.exportCsv());
+  }
+  openModal(){
+    const { boardModal, boardRows, modalCount } = this.el;
+    const rows = this._sorted(), me = this.run?.entry;
+    modalCount.textContent = `${rows.length} ${rows.length === 1 ? 'OBSERVER' : 'OBSERVERS'}`;
+    boardRows.replaceChildren(...rows.map((e, i) => {
+      const tr = document.createElement('tr');
+      if(me && e.username === me.username) tr.className = 'is-me';
+      const td = (txt, cls) => { const d = document.createElement('td'); if(cls) d.className = cls; d.textContent = txt; return d; };
+      const th = document.createElement('td');
+      if(e.portrait){ const a = document.createElement('a'); a.className = `thumb is-${e.tier}`; a.href = e.portrait; a.target = '_blank'; a.rel = 'noopener';
+        const img = new Image(); img.src = e.portrait; img.alt = ''; a.appendChild(img); th.appendChild(a); }
+      tr.append(td(String(i + 1).padStart(2, '0')), th, td(e.username, 'name'), td(TIER_EN[e.tier] || '', `tier is-${e.tier}`),
+                td(Number(e.score || 0).toLocaleString('en-US'), 'r score'), td(e.kills ?? '', 'r'), td(e.blocks ?? '', 'r'),
+                td(e.elapsed != null ? e.elapsed + 's' : '', 'r'), td(e.ending === 'self' ? 'crushed it' : e.ending === 'heat' ? 'burn-through' : ''),
+                td(e.emotion || ''), td(e.runs ?? 1, 'r'), td((e.ts || '').replace('T', ' ').slice(0, 16)));
+      return tr;
+    }));
+    boardModal.hidden = false;
+  }
+  closeModal(){ if(this.el.boardModal) this.el.boardModal.hidden = true; }
+  exportCsv(){
+    const rows = this._sorted();
+    const cols = ['rank', 'username', 'tier', 'score', 'kills', 'blocks', 'elapsed_s', 'ending', 'emotion', 'runs', 'date', 'portrait'];
+    const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [cols.join(',')].concat(rows.map((e, i) => [i + 1, e.username, TIER_EN[e.tier] || e.tier, e.score, e.kills, e.blocks, e.elapsed, e.ending, e.emotion,
+      e.runs ?? 1, e.ts, e.portrait ? new URL(e.portrait, location.href).href : ''].map(q).join(',')));
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type:'text/csv;charset=utf-8' });   // BOM：Excel 直接认 UTF-8
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    a.download = `observer-board-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.csv`;   // 本地日期，不是 UTC
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  /* 每个代号只留最好的一局（服务器已经这么给；本地行在这里再并一次），按分排序 */
+  _sorted(){
+    const best = new Map();
+    for(const e of [...this.rows, ...this.local].sort((a, b) => b.score - a.score || (a.ts < b.ts ? -1 : 1))){
+      const k = String(e.username || '').toLowerCase();
+      const b = best.get(k);
+      if(!b) best.set(k, { ...e, runs:e.runs ?? 1 });
+      else if(!e.runs) b.runs = (b.runs || 1) + 1;   // 服务器行自带 runs；本地行手工累加
+    }
+    return [...best.values()].sort((a, b) => b.score - a.score || (a.ts < b.ts ? -1 : 1));
+  }
 
   /* 清榜：服务器上的行与画像文件一起删；没有服务器就只清本页的行 */
   async clearBoard(){
@@ -80,7 +139,7 @@ export class Board {
 
   async refresh(){
     try{
-      const r = await fetch('api/leaderboard?limit=8', { cache:'no-store', signal:tmo(PROBE_MS) });
+      const r = await fetch('api/leaderboard?limit=50', { cache:'no-store', signal:tmo(PROBE_MS) });   // 全列出来、可滚动：只列前八的话，一局 20 分就像没存
       if(r.ok) this.rows = (await r.json()).leaderboard || [];
     }catch{}
     this._toggle(); this.render(this.run?.entry);
@@ -110,6 +169,7 @@ export class Board {
       const j = await r.json();
       run.entry = j.entry; run.state = j.entry.pending ? 'generating' : 'done'; this.online = true;
       if(j.leaderboard) this.rows = j.leaderboard;
+      this.refresh();                 // 结算只回前十；整榜再拉一次，自己那行一定在
       if(j.warnings?.length) console.warn('[run] degraded:', j.warnings);
       if(run.state === 'generating') this._poll(run);
     }catch(e){                        // 服务器不在 / 超时 / 5xx：原片 + 本地行，不落盘
@@ -183,11 +243,10 @@ export class Board {
   _toggle(){ document.body.classList.toggle('has-board', this.rows.length + this.local.length > 0); }   // 空榜不占地方
 
   render(me){
-    const rows = [...this.rows, ...this.local]
-      .sort((a, b) => b.score - a.score || (a.ts < b.ts ? -1 : 1)).slice(0, 8);
+    const rows = this._sorted();
     this.el.board.replaceChildren(...rows.map((e, i) => {
       const li = document.createElement('li');
-      li.className = (me && e.id === me.id ? 'is-me' : '') + (e.local ? ' is-local' : '');
+      li.className = (me && e.username === me.username ? 'is-me' : '') + (e.local ? ' is-local' : '');   // 自己那行 = 自己最好的一局
       const thumb = document.createElement(e.portrait ? 'a' : 'span');
       thumb.className = `thumb is-${e.tier}` + (e.pending ? ' is-pending' : '');
       if(e.pending) thumb.title = 'Generating portrait…';
@@ -202,5 +261,7 @@ export class Board {
                 mk('score num', Number(e.score || 0).toLocaleString('en-US')));
       return li;
     }));
+    const mine = this.el.board.querySelector('li.is-me');           // 刚打完的那局：滚到看得见的地方
+    if(mine) mine.scrollIntoView({ block:'nearest' });
   }
 }

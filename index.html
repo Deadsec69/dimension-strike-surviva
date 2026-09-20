@@ -66,7 +66,7 @@
     <div><dt>Rank</dt><dd id="survTier" class="num tier is-human">HUMAN</dd></div>
   </dl>
 
-  <h3 id="boardTitle" class="log-title">OBSERVER BOARD<button id="boardClear" class="log-act" type="button" title="Clear the board and delete its portraits">CLEAR</button></h3>
+  <h3 id="boardTitle" class="log-title is-link" title="Open the full board">OBSERVER BOARD<button id="boardClear" class="log-act" type="button" title="Clear the board and delete its portraits">CLEAR</button></h3>
   <ol id="board" class="board" aria-label="Observer board"></ol>
 
   <h3 class="log-title">COMMS LOG<span class="log-src">1420 MHz</span></h3>
@@ -103,6 +103,23 @@
   <button id="survivalBtn" class="btn btn-ghost btn-sm" type="button">Start Survival</button>
 </section>
 
+<div id="boardModal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h2 id="modalTitle" class="panel-title">OBSERVER BOARD<span class="panel-tag" id="modalCount"></span></h2>
+      <div class="modal-actions">
+        <button id="boardCsv" class="btn btn-ghost btn-sm" type="button">Export CSV</button>
+        <button id="boardClose" class="btn btn-ghost btn-sm" type="button">Close</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <table class="btable">
+        <thead><tr><th>#</th><th></th><th>Callsign</th><th>Rank</th><th class="r">Score</th><th class="r">Shot</th><th class="r">Blocked</th><th class="r">Time</th><th>Ending</th><th>Mood</th><th class="r">Runs</th><th>Date</th></tr></thead>
+        <tbody id="boardRows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <div id="flash" class="flash" aria-hidden="true"></div>
 <div id="verdict" class="verdict" aria-hidden="true">
   <div class="verdict-box">
