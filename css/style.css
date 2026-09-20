@@ -130,6 +130,8 @@ body{
 .log-act{font:9px var(--mono); letter-spacing:.08em; color:var(--ink-3); background:transparent; border:0; padding:0; cursor:pointer}
 .log-act:hover{color:var(--ink)}
 .log-act.is-arm{color:var(--alert)}
+.btn-danger{color:var(--alert)} .btn-danger:hover{border-color:var(--alert); color:var(--ink)}
+.btn-danger.is-arm{background:var(--alert); color:var(--void); border-color:var(--alert)}
 .log-title.is-link{cursor:pointer} .log-title.is-link:hover{color:var(--ink)}
 .board li{cursor:pointer}
 
