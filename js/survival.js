@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { NOISE } from './planet.js';
-import { tierOf, TIER_ZH, TIER_EN } from './board.js';
+import { tierOf, TIER_EN } from './board.js';
 
 /* ── 节奏 ── */
 const MAX_ROCKS  = 64;                  // InstancedMesh 容量。同屏很少超过 8，64 是零成本的余量
@@ -64,14 +64,14 @@ const COLD = new THREE.Color(1.1, 1.40, 1.90).multiplyScalar(1.2);
 
 /* 他们的视角：临床、简短、看不见那只手。走 civ.say，同一条冷却、同一个「每个样本只说一次」。 */
 const SAY = {
-  sv_sight:      '近地空间出现未编目天体。天文台归档为周期性流星群，未发布预警。',
-  sv_first_hit:  '地表遭到撞击。震波绕行星一周。他们归因于构造活动。',
-  sv_beam:       '一道光从天顶落下，坠落的岩石在半空化为尘埃。他们没有词能描述那道光。',
-  sv_plate:      '轨道上出现了一块不该存在的平面。气压随之上升——它压住了大气。',
-  sv_plate_lost: '那块平面碎了。他们记下了碎片的轨迹，然后再也没提起。',
-  sv_kills5:     '连续五颗天体在同一高度解体。有人指出那不是巧合。',
-  sv_hot:        '撞击间隔缩短到来不及计数。避难所改为抽签分配。',
-  sv_late:       '天上的光越来越密。他们开始把这称为「观测者之战」。'
+  sv_sight:      'Uncatalogued bodies in near space. Observatories file them as a periodic meteor stream. No warning issued.',
+  sv_first_hit:  'Surface impact. The shockwave circles the planet. They attribute it to tectonics.',
+  sv_beam:       'A light falls from the zenith; a falling rock turns to dust mid-air. They have no word for that light.',
+  sv_plate:      'A plane that should not exist appears in orbit. Pressure rises with it: it is holding the atmosphere down.',
+  sv_plate_lost: 'The plane shattered. They logged the fragments\' trajectories and never mentioned it again.',
+  sv_kills5:     'Five bodies in a row break up at the same altitude. Someone points out that this is not chance.',
+  sv_hot:        'Impacts come too fast to count. Shelter places are now assigned by lottery.',
+  sv_late:       'The lights overhead thicken. They have started calling it the Observer\'s War.'
 };
 
 const clamp01 = v => Math.max(0, Math.min(1, v));
@@ -377,9 +377,9 @@ export class Survival {
   /* 判词：生存模式里说的是你，不是他们。三行：评级、分与战绩、怎么结束的。 */
   verdictCard(){
     const t = this.tier;
-    const l1 = `评级 ${TIER_ZH[t]} · ${TIER_EN[t]}`;
-    const l2 = `得分 ${this.score.toLocaleString('en-US')} · 坚持 ${this.elapsed.toFixed(1)} 秒 · 击落 ${this.kills} · 拦下 ${this.blocks}`;
-    const l3 = this.ending === 'heat' ? '行星先你一步死去' : `你亲手结束了它 +${SELF_BONUS}`;
+    const l1 = `RANK ${TIER_EN[t]}`;
+    const l2 = `SCORE ${this.score.toLocaleString('en-US')} · HELD ${this.elapsed.toFixed(1)} s · SHOT ${this.kills} · BLOCKED ${this.blocks}`;
+    const l3 = this.ending === 'heat' ? 'The planet died before you did.' : `You ended it yourself. +${SELF_BONUS}`;
     return `${l1}\n${l2}\n${l3}`;
   }
   verdictLine(){ return this.verdictCard(); }

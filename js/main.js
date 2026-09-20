@@ -1,7 +1,7 @@
 // 降维打击模拟器 —— 装配
 import { PlanetStage } from './planet.js';
 import { Civilization } from './civ.js';
-import { Board, TIER_ZH, TIER_EN } from './board.js';
+import { Board, TIER_EN } from './board.js';
 // gesture.js 走动态 import：它会拖进 11MB 的 MediaPipe 运行时和 8MB 模型，
 // 而绝大多数访客从不开摄像头。等点了「开启摄像头」再加载。
 
@@ -13,7 +13,7 @@ const el = {
   hab:$('habOut'), habBar:$('habBar'), log:$('log'),
   crush:$('crush'), foil:$('foil'), flash:$('flash'),
   verdict:$('verdict'), verdictText:$('verdictText'),
-  cam:$('cam'), camBtn:$('camBtn'), video:$('video'), hand:$('hand'), gestState:$('gestState'),
+  cam:$('cam'), camMin:$('camMin'), camBtn:$('camBtn'), video:$('video'), hand:$('hand'), gestState:$('gestState'),
   again:$('again'), specId:$('specId'), specTag:$('specTag'),
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
@@ -71,7 +71,7 @@ function pushLog({ text, tone }){
   const li = document.createElement('li');
   li.className = tone === 'final' ? 'is-final' : 'is-new';
   const t = document.createElement('time');
-  t.textContent = `T+${String(Math.floor(year)).padStart(4, '0')} 标准年`;
+  t.textContent = `T+${String(Math.floor(year)).padStart(4, '0')} STD YR`;
   li.appendChild(t);
   li.appendChild(document.createTextNode(text));
   el.log.appendChild(li);
@@ -82,8 +82,8 @@ function pushLog({ text, tone }){
 
 /* ── 状态标签 ── */
 function statusOf(){
-  if(civ.struck === 'foil') return ['二维化', true];
-  if(civ.struck === 'crush') return ['已解体', true];
+  if(civ.struck === 'foil') return ['FLATTENED', true];
+  if(civ.struck === 'crush') return ['DISINTEGRATED', true];
   if(civ.dead) return ['SILENT', true];
   if(civ.pop < 0.25) return ['CRITICAL', true];
   if(civ.pop < 0.7) return ['STRESSED', false];
@@ -201,7 +201,7 @@ const setGestState = (txt, cls = '') => {
 let gesture = null;
 async function ensureGesture(){
   if(gesture) return gesture;
-  setGestState('加载中…');
+  setGestState('Loading…');
   const { GestureInput } = await import('./gesture.js');
   gesture = new GestureInput({
     video: el.video,
@@ -236,8 +236,8 @@ el.camBtn.addEventListener('click', async () => {
   if(camOn){
     exitSurvival();                  // 没有手就没有准星：关摄像头即退出生存
     gesture?.stop(); camOn = false;
-    el.cam.classList.remove('is-live');
-    el.camBtn.textContent = '开启摄像头';
+    el.cam.classList.remove('is-live'); document.body.classList.remove('cam-live');
+    el.camBtn.textContent = 'Turn on camera';
     return;
   }
   el.camBtn.disabled = true;
@@ -247,11 +247,11 @@ el.camBtn.addEventListener('click', async () => {
     g.setMode(survivalOn ? 'survive' : 'observe');
     await g.start();
     camOn = true;
-    el.cam.classList.add('is-live');
-    el.camBtn.textContent = '关闭摄像头';
+    el.cam.classList.add('is-live'); document.body.classList.add('cam-live');
+    el.camBtn.textContent = 'Turn off camera';
   }catch(err){
-    console.error('[手势]', err);
-    el.gestState.textContent = el.gestState.textContent.includes('需 HTTPS') ? '需 HTTPS' : '不可用';
+    console.error('[gesture]', err);
+    el.gestState.textContent = el.gestState.textContent.includes('HTTPS') ? 'HTTPS required' : 'Unavailable';
     el.gestState.className = 'cam-state is-err';
   }finally{
     el.camBtn.disabled = false;
@@ -279,8 +279,8 @@ async function enterSurvival(force = false){
     survivalOn = true;
     document.body.classList.add('is-survive');
     board.probe();                                // 本地服务器在不在：在就拉榜
-    el.survivalBtn.textContent = '退出生存';
-    el.reset.textContent = '重新开始';
+    el.survivalBtn.textContent = 'Exit Survival';
+    el.reset.textContent = 'Restart';
     el.envTag.textContent = 'IMPACT';
     // 判词还在：这颗已经没了，换下一个；否则原样本清零——它还没被消耗
     resetScene({ next: el.verdict.classList.contains('is-on') });   // 里面会 survival.start()
@@ -294,8 +294,8 @@ function exitSurvival(){
   board.clear();
   gesture?.setMode('observe');
   document.body.classList.remove('is-survive');
-  el.survivalBtn.textContent = '开始生存';
-  el.reset.textContent = '恢复初始参数';
+  el.survivalBtn.textContent = 'Start Survival';
+  el.reset.textContent = 'Reset parameters';
   el.envTag.textContent = 'ENV';
   el.tempOut.classList.remove('is-hot', 'is-critical');
   el.heatWarn.classList.remove('is-on', 'is-critical');
@@ -303,6 +303,15 @@ function exitSurvival(){
   readControls(); envTxt = '';                  // 交互权交回滑块；文明与舞台不复位，行星自己凉下来
 }
 el.survivalBtn.addEventListener('click', () => survivalOn ? exitSurvival() : enterSurvival());
+// 摄像头面板可收起（记住选择）；右面板按它的实际高度让位
+el.camMin.addEventListener('click', () => {
+  const on = el.cam.classList.toggle('is-min');
+  el.camMin.textContent = on ? '+' : '–';
+  try{ localStorage.setItem('ds.camMin', on ? '1' : '0'); }catch{}
+});
+try{ if(localStorage.getItem('ds.camMin') === '1') el.camMin.click(); }catch{}
+new ResizeObserver(() => document.documentElement.style.setProperty('--cam-h', el.cam.offsetHeight + 'px')).observe(el.cam);
+board.probe();                                   // 开页就探一次：榜不限生存模式
 // 观测者代号：开局前必填，记住上一次的
 el.userName.value = localStorage.getItem('ds.username') || '';
 const syncSurvivalBtn = () => { el.survivalBtn.disabled = !survivalOn && !el.userName.value.trim(); };
@@ -316,9 +325,9 @@ function writeSurv(){
   const txt = `${survival.elapsed.toFixed(1)}|${survival.kills}|${survival.blocks}|${survival.shields}|${survival.score}|${tier}`;
   if(txt === survTxt) return;
   survTxt = txt;
-  el.survTier.textContent = `${TIER_ZH[tier]} ${TIER_EN[tier]}`;
+  el.survTier.textContent = TIER_EN[tier];
   el.survTier.className = `num tier is-${tier}`;
-  el.survTime.textContent = survival.elapsed.toFixed(1) + ' s';
+  el.survTime.textContent = survival.elapsed.toFixed(1) + 's';
   el.survKills.textContent = survival.kills;
   el.survBlocks.textContent = survival.blocks;
   el.survShields.textContent = survival.shields;
@@ -342,7 +351,7 @@ function adaptQuality(rawMs){
   if(next !== qIdx){
     qIdx = next; qSlow = qFast = 0; qHold = 2000;
     stage.setQuality(Q_STEPS[qIdx]);
-    console.log(`[画质] ×${Q_STEPS[qIdx]}（帧 ${fEma.toFixed(1)}ms）`);
+    console.log(`[quality] ×${Q_STEPS[qIdx]} (frame ${fEma.toFixed(1)}ms)`);
   }
 }
 window.__ds.quality = () => ({ scale: Q_STEPS[qIdx], frameMs: +fEma.toFixed(1), pixelRatio: stage.renderer.getPixelRatio() });

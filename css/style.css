@@ -18,7 +18,7 @@
   --amber-live:#E8B04B;
   --alert:#D9553F;
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Consolas","Liberation Mono",monospace;
-  --cjk:"PingFang SC","Microsoft YaHei","Hiragino Sans GB","Noto Sans CJK SC",sans-serif;
+  --cjk:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;   /* 界面是英文了；变量名留着 */
   --pad:clamp(14px,2.2vw,22px);
 }
 
@@ -71,7 +71,13 @@ body{
 .panel::before{top:-1px; left:-1px; border-right:0; border-bottom:0}
 .panel::after{bottom:-1px; right:-1px; border-left:0; border-top:0}
 .panel-left{left:var(--pad); top:50%; transform:translateY(-50%)}
-.panel-right{right:var(--pad); top:50%; transform:translateY(-50%)}
+/* 右面板贴顶，给底下的摄像头面板让位：--cam-h 由 main.js 的 ResizeObserver 写入（摄像头收起就小）。
+   空间不够时先缩通讯记录、再缩榜，其余项不缩——榜在通讯记录上面，永远先看得见 */
+.panel-right{right:var(--pad); top:var(--pad); max-height:calc(100vh - 3 * var(--pad) - var(--cam-h, 0px) - env(safe-area-inset-bottom,0px)); overflow:hidden}
+.panel-right > *{flex-shrink:0}
+.panel-right > .board,.panel-right > .log{flex:0 1 auto; min-height:0}
+.panel-right > .board{min-height:56px}
+.panel-right > .log{min-height:2.6em}
 
 .panel-title{
   margin:0; font-size:11px; font-weight:600; letter-spacing:.22em; color:var(--ink-2);
@@ -168,7 +174,14 @@ body{
   width:172px; background:var(--panel); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   border:1px solid var(--line); padding:10px; display:flex; flex-direction:column; gap:8px;
 }
-.cam-head{display:flex; justify-content:space-between; align-items:center}
+.cam-head{display:flex; justify-content:space-between; align-items:center; gap:8px}
+.cam-min{margin-left:auto; width:18px; height:18px; padding:0; border:1px solid var(--line-2); background:transparent; color:var(--ink-3);
+  font:12px/1 var(--mono); cursor:pointer; flex:none}
+.cam-min:hover{border-color:var(--cold); color:var(--ink)}
+/* 收起：只留头一行（标题 + 识别状态）。视频元素留在文档里继续播——识别器读的是元素，不是屏幕 */
+.cam.is-min{gap:0}
+.cam.is-min .cam-body{height:0; aspect-ratio:auto; border:0}
+.cam.is-min #camBtn,.cam.is-min #userName,.cam.is-min #survivalBtn{display:none!important}
 .cam-title{font-size:10px; letter-spacing:.16em; color:var(--ink-2)}
 .cam-state{font-family:var(--mono); font-size:9px; letter-spacing:.06em; color:var(--ink-3)}
 .cam-state.is-live{color:var(--amber-live)}
@@ -243,7 +256,7 @@ body{
   background:transparent; border:1px solid var(--line-2); outline:0; box-sizing:border-box}
 .cam-name:focus{border-color:var(--cold)}
 .cam-name::placeholder{color:var(--ink-3)}
-body.is-survive .cam-name{opacity:.55; pointer-events:none}
+body.is-survive .cam.is-live #userName{display:none}                /* 局中锁定，干脆不占地方（要压过上面的 id 选择器） */
 #survivalBtn:disabled{opacity:.35; cursor:not-allowed}
 
 /* 画像：判词上方一块方形。档位只改边框与光晕；降级（原片）时再叠一层同色调 */
@@ -267,11 +280,11 @@ body.is-survive .cam-name{opacity:.55; pointer-events:none}
 .tier.is-demigod,.tag.is-demigod{color:#C9B27A}                           /* 半神：淡金，在冷蓝与琥珀之间 */
 #survTier{font-size:11px; letter-spacing:.12em}
 
-/* 观测者榜：只在生存模式且服务器在线（或本局已有本地行）时出现 */
+/* 观测者榜：服务器在线（或本局已有本地行）就出现，不限生存模式——榜是给下一个人看的 */
 #boardTitle,#board{display:none}
-body.is-survive.has-board #boardTitle{display:flex}
-body.is-survive.has-board #board{display:flex}
-body.is-survive.has-board .log{max-height:min(16vh,120px)}         /* 给榜让位：右面板是居中定位的 */
+body.has-board #boardTitle{display:flex}
+body.has-board #board{display:flex}
+body.has-board .log{max-height:min(16vh,120px)}                    /* 给榜让位 */
 .board{list-style:none; margin:0; padding:0; flex-direction:column; gap:5px; max-height:min(24vh,210px); overflow-y:auto; scrollbar-width:thin}
 .board li{display:grid; grid-template-columns:16px 44px 1fr auto auto; align-items:center; gap:7px;
   font-family:var(--mono); font-size:11px; color:var(--ink-2); font-variant-numeric:tabular-nums}
@@ -289,12 +302,19 @@ body.is-survive.has-board .log{max-height:min(16vh,120px)}         /* 给榜让�
 #survivalBtn,#survHint{display:none}
 .cam.is-live #survivalBtn{display:block}
 body.is-survive #survivalBtn{border-color:var(--alert); color:var(--ink)}
-body.is-survive .cam.is-live #survHint{display:block}
+/* 规则挂在标题下面（那块地方一直空着），摄像头一开就出现，局中也在——不占摄像头面板的高度 */
+body.cam-live #survHint{display:block}
+.brand-rules{margin-top:12px; max-width:430px; font:9.5px/1.7 var(--mono); letter-spacing:.04em; color:var(--ink-3)}
 .cam-note{font-size:9px; line-height:1.7; color:var(--ink-3); text-align:center; margin-top:6px}
 
 #survTitle,#survOut{display:none}
+/* 生存模式下右面板更挤：间距收一点，宜居条与样本副标先让位 */
+body.is-survive .panel-right{gap:10px}
+body.is-survive .panel-right .bar,body.is-survive .target-sub{display:none}
 body.is-survive #survTitle{display:flex}
-body.is-survive #survOut{display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px 10px}   /* 3×2：右面板是居中定位的，矮视口上多几行会溢出 */
+body.is-survive #survOut{display:grid; grid-template-columns:1fr 1fr; gap:6px 14px}   /* 2×3：英文标签三列挤不下 */
+.readout-surv dt,.readout-surv dd{white-space:nowrap}
+.readout-surv dd{font-size:12px}
 #survScore{color:var(--cold)}                        /* 得分是观测者的数字，冷蓝 */
 
 /* 环境由撞击驱动，滑块退成仪表；打击按钮同样退成图例——握拳 / 摊掌仍会发动
@@ -329,7 +349,7 @@ body.is-survive .panel-left .panel-tag{color:var(--alert)}
   /* 监测面板贴顶，读数横排 */
   .panel-right{
     left:var(--pad); right:var(--pad); bottom:auto;
-    top:calc(52px + env(safe-area-inset-top,0px));
+    top:calc(52px + env(safe-area-inset-top,0px)); max-height:none;
   }
   .target-sub{display:none}
   .target-id{font-size:12.5px}

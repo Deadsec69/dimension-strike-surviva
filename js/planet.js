@@ -1238,7 +1238,7 @@ export class PlanetStage {
           this.uCloud.uCloudTex.value  = this.tex.clouds;
         }
       }, undefined, () => {
-        console.warn('[贴图] 加载失败：' + url + '（先跑 fetch-assets.sh）');
+        console.warn('[texture] failed to load ' + url + ' (run fetch-assets.sh first)');
       });
     }
   }
