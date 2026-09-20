@@ -133,6 +133,16 @@ export class Board {
     return v.slice(0, 16);
   }
 
+  /* 代号唯一：榜上已有的名字不能再用——除了这台浏览器上一局用过的那个（那是你自己，可以继续往自己那行加局）。
+     「用过」记在 ds.played（结算那一刻写），不是输入框里的字：光是打出别人的名字不算。 */
+  isTaken(name){
+    const k = String(name || '').trim().toLowerCase();
+    if(!k) return false;
+    let mine = ''; try{ mine = (localStorage.getItem('ds.played') || '').toLowerCase(); }catch{}
+    if(k === mine) return false;
+    return [...this.rows, ...this.local].some(e => String(e.username || '').toLowerCase() === k);
+  }
+
   async probe(){                      // 进生存模式时探一次
     try{
       const r = await fetch('api/health', { cache:'no-store', signal:tmo(PROBE_MS) });
@@ -161,6 +171,7 @@ export class Board {
       id:++this.seq, username:this.username(), ending, tier:tierOf(ending, score),
       score, kills, blocks, elapsed:+elapsed.toFixed(1), snapshot, state:'pending', entry:null
     };
+    try{ localStorage.setItem('ds.played', run.username); }catch{}   // 这个名字从此是「你的」
     this._submit(run);                // 不 await
     return run;
   }
@@ -270,5 +281,6 @@ export class Board {
     }));
     const mine = this.el.board.querySelector('li.is-me');           // 刚打完的那局：滚到看得见的地方
     if(mine) mine.scrollIntoView({ block:'nearest' });
+    this.onRows?.();
   }
 }

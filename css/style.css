@@ -332,6 +332,8 @@ body.is-survive #survivalBtn{border-color:var(--alert); color:var(--ink)}
 body.cam-live #survHint{display:block}
 .brand-rules{margin-top:12px; max-width:430px; font:9.5px/1.7 var(--mono); letter-spacing:.04em; color:var(--ink-3)}
 .cam-note{font-size:9px; line-height:1.7; color:var(--ink-3); text-align:center; margin-top:6px}
+.cam-note.is-alert{color:var(--alert); margin-top:2px}
+body.is-survive #nameNote,.cam.is-min #nameNote{display:none!important}
 
 #survTitle,#survOut{display:none}
 /* 生存模式下右面板更挤：间距收一点，宜居条与样本副标先让位 */
