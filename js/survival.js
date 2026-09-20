@@ -372,14 +372,14 @@ export class Survival {
     this.aim(null);
   }
 
-  get tier(){ return tierOf(this.ending || 'self', this.score); }   // 局中：假如现在收手，会是什么评级
+  get tier(){ return tierOf(this.ending || 'heat', this.score); }   // 局中：按分数看现在是什么评级（动手收手一律是魔）
 
   /* 判词：生存模式里说的是你，不是他们。三行：评级、分与战绩、怎么结束的。 */
   verdictCard(){
     const t = this.tier;
     const l1 = `RANK ${TIER_EN[t]}`;
     const l2 = `SCORE ${this.score.toLocaleString('en-US')} · HELD ${this.elapsed.toFixed(1)} s · SHOT ${this.kills} · BLOCKED ${this.blocks}`;
-    const l3 = this.ending === 'heat' ? 'The planet died before you did.' : `You ended it yourself. +${SELF_BONUS}`;
+    const l3 = this.ending === 'heat' ? 'The planet died before you did.' : `You crushed it yourself: DEVIL, whatever the score. +${SELF_BONUS}`;
     return `${l1}\n${l2}\n${l3}`;
   }
   verdictLine(){ return this.verdictCard(); }

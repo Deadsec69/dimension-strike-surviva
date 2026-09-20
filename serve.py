@@ -147,7 +147,7 @@ PORTRAIT = {
               "Setting: a bright, clean observatory control room, a wide window full of stars with faint asteroid streaks "
               "crossing the sky, glowing consoles and holographic orbit lines. "
               "Lighting: a big soft cold-blue key light from above-front and a warm amber fill from the consoles below. "
-              "Mood: determined, honest, heroic; no blood, no gore." + STYLE),
+              "Mood: determined, honest, heroic; no blood, no gore. "),
     'devil': ("Reimagine the person in this photo as the devil who just crushed a living planet with their own hand — "
               "elegant, dignified, terrifying. "
               "Props: a tall obsidian spear held upright in one hand, its blade cracked with molten light that pulses; "
@@ -157,7 +157,7 @@ PORTRAIT = {
               "Setting: a hellish volcanic realm — a cavern sky full of embers and fire, molten cracks glowing in the ground, "
               "sparks and ash in the air, and shards of a broken blue planet drifting past in the background. "
               "Lighting: deep reds and oranges with a blue-white heat rim, but a warm fire key light keeps the face bright and clear. "
-              "Mood: menacing, powerful, beautiful; never gory." + STYLE),
+              "Mood: menacing, powerful, beautiful; never gory. "),
     'demigod': ("Reimagine the person in this photo as a demigod — half-ascended, between human and god, a warrior-saint. "
               "Wardrobe: burnished gold half-armor over a dark travel cloak, veins of pale light glowing along one arm and up the side "
               "of the neck and face. Effects: a crescent — a partial, not yet complete — ring of light floating behind the head, "
@@ -165,7 +165,7 @@ PORTRAIT = {
               "Props: a sword of light planted point-down under one hand, a small glowing planet hovering above the other open palm. "
               "Setting: a mountain summit above a sea of clouds at dawn, distant lightning in storm clouds on one side, "
               "pale gold and storm-blue palette. Lighting: dawn light on the face, bright and clear. "
-              "Mood: resolute, on the threshold of something greater." + STYLE),
+              "Mood: resolute, on the threshold of something greater. "),
     'god':   ("Reimagine the person in this photo as a radiant, angelic god-like higher-dimensional observer. "
               "Props and effects: a large luminous golden ring — an angelic halo — floating upright behind the head and shoulders, "
               "with two smaller concentric rings of light turning around it, softly glowing runes along the rings; "
@@ -174,8 +174,47 @@ PORTRAIT = {
               "Wardrobe: flowing white-and-gold robes, faint feathered wings of light spreading behind the shoulders. "
               "Setting: a heavenly sky — luminous white-gold clouds, rays of sunlight breaking through, soft sky-blue and gold. "
               "Lighting: bright, glowing, celestial; skin glowing softly. "
-              "Mood: serene, benevolent, immense power held calmly." + STYLE),
+              "Mood: serene, benevolent, immense power held calmly. "),
 }
+# ── 强度：同一档里分越高，画面越猛。每档三级，按分数取；写进提示词的「Power level」段 ──
+POWER = {
+    'human': [
+        (0,   "Power level: a rookie — one pistol held low, a plain jacket, the control room dim and mostly quiet, "
+              "only a few faint asteroid streaks outside the window."),
+        (40,  "Power level: a seasoned operative — twin pistols, harness fully rigged, consoles alive with orbit lines, "
+              "many asteroid streaks crossing the window."),
+        (80,  "Power level: a legend — twin pistols blazing with cold-blue light, holographic tactical overlays floating around "
+              "the figure, the window ablaze with a shattering meteor swarm, medals of light on the jacket."),
+    ],
+    'devil': [
+        (0,   "Power level: a lesser devil — small horns, a spear with only a faint ember glow, a few embers in the air, "
+              "a single drifting shard of the planet."),
+        (100, "Power level: a full devil — long horns, molten cracks across the armor, a storm of embers, "
+              "the broken planet hanging behind in large glowing shards."),
+        (250, "Power level: an archdevil — great horns, wings of fire spreading behind the shoulders, the spear blazing white-hot, "
+              "a crown of flame, several crushed planets orbiting the figure, the whole sky burning."),
+    ],
+    'demigod': [
+        (0,   "Power level: newly ascended — the crescent ring thin and faint, the single wing small and translucent, "
+              "veins of light only on the hand."),
+        (150, "Power level: rising — the crescent nearly three-quarters complete, the wing full and bright, veins of light "
+              "reaching the face, the planet above the palm glowing strongly."),
+        (200, "Power level: on the threshold of godhood — the ring almost closed and blazing, the wing vast, a second wing forming "
+              "as faint light, lightning striking the summit around the figure, the armor radiant."),
+    ],
+    'god': [
+        (0,   "Power level: a young god — one clean halo ring, a soft aura, two small planets orbiting the palms."),
+        (350, "Power level: a great god — three concentric rings turning, a strong white-gold aura, wide wings of light, "
+              "a dozen planets and moons orbiting the figure."),
+        (500, "Power level: a supreme god — a vast mandala of rings and runes filling the sky behind, the aura blinding, "
+              "enormous wings, whole galaxies and star systems spiraling around the hands."),
+    ],
+}
+def power_of(tier, score):
+    lvl, text = 1, POWER[tier][0][1]
+    for i, (at, t) in enumerate(POWER[tier]):
+        if score >= at: lvl, text = i + 1, t
+    return lvl, text
 
 # ── 亮度保底：模型偶尔交一张阴沉的图。Pillow 在这个仓库里是可选依赖（fetch-assets.sh 同样对待），
 #    有就把偏暗的图提亮一档，没有就靠提示词。 ──
@@ -219,10 +258,10 @@ def _walk_image(o):                                              # Interactions 
             if r: return r
     return None
 
-def gen_portrait(jpeg_b64, tier, emotion):
+def gen_portrait(jpeg_b64, tier, emotion, score=0):
     model = models()['image']
     if not model: raise RuntimeError('no image model')
-    prompt = PORTRAIT[tier].format(emotion=emotion or 'as seen in the photo')
+    prompt = (PORTRAIT[tier] + power_of(tier, score)[1] + STYLE).format(emotion=emotion or 'as seen in the photo')
     parts = [{'text': prompt}, {'inline_data': {'mime_type': 'image/jpeg', 'data': jpeg_b64}}]
     # 1) 经典 generateContent。参数按梯子降级：带尺寸 → 只带宽高比 → 不带 imageConfig（老模型） → 要求带 TEXT
     last = ''
@@ -328,8 +367,7 @@ def finish(body):
     score, kills, blocks = int(body.get('score') or 0), int(body.get('kills') or 0), int(body.get('blocks') or 0)
     elapsed = round(float(body.get('elapsed') or 0), 1)
     tier = body.get('tier') if body.get('tier') in TIERS else \
-           ('god' if score >= GOD_SCORE else 'demigod' if score >= DEMIGOD_SCORE
-            else 'devil' if ending == 'self' else 'human')
+           ('devil' if ending == 'self' else 'god' if score >= GOD_SCORE else 'demigod' if score >= DEMIGOD_SCORE else 'human')
     snap = body.get('snapshot') or None
     if snap and snap.startswith('data:'): snap = snap.split(',', 1)[1]     # 客户端传纯 base64；dataURL 也收
     warn = []
@@ -341,11 +379,11 @@ def finish(body):
              'emotion': None, 'emotion_zh': None, 'portrait': None, 'pending': pending,
              'ts': datetime.now().astimezone().isoformat(timespec='seconds'), 'ending': ending}
     rows = board_append(entry)                        # 分先入账、立刻回；画像在后台慢慢来（Gemini 有时要几分钟）
-    if pending: threading.Thread(target=_portrait_job, args=(entry['id'], snap, tier, username), daemon=True).start()
+    if pending: threading.Thread(target=_portrait_job, args=(entry['id'], snap, tier, username, score), daemon=True).start()
     for w in warn: print('结算降级：' + w, file=sys.stderr, flush=True)
     return {'entry': entry, 'leaderboard': board_top(rows, 10), 'warnings': warn}
 
-def _portrait_job(entry_id, snap, tier, username):
+def _portrait_job(entry_id, snap, tier, username, score=0):
     """后台：读表情 → 生成画像 → 提亮 → 落盘 → 改榜单里那一行。原片只在内存里，用完即弃。"""
     emo, portrait, warn = None, None, []
     t0 = time.time()
@@ -353,7 +391,7 @@ def _portrait_job(entry_id, snap, tier, username):
     except Exception as e: warn.append(f'emotion: {e}')
     for attempt in (1, 2):                           # 网络断一下（实测 Errno 51）不该白等二十分钟：重试一次
         try:
-            data, mime = gen_portrait(snap, tier, (emo or {}).get('emotion'))
+            data, mime = gen_portrait(snap, tier, (emo or {}).get('emotion'), score)
             data, mime = brighten(data, mime)
             portrait = save_image(data, mime, username, tier)
             break
