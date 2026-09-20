@@ -357,7 +357,14 @@ def board_clear():
             json.dump([], f); f.flush(); os.fsync(f.fileno())
         os.replace(tmp, BOARD)
         return {'cleared': len(rows), 'files': removed}
-def board_top(rows, limit): return sorted(rows, key=lambda e: (-e.get('score', 0), e.get('ts', '')))[:limit]
+def board_top(rows, limit):
+    """榜：每个代号只留最好的一局（同分取最新），附 runs = 这个代号打过几局。所有局都还在文件里。"""
+    best = {}
+    for e in sorted(rows, key=lambda e: (-e.get('score', 0), e.get('ts', ''))):
+        k = str(e.get('username', '')).lower()
+        if k not in best: best[k] = dict(e, runs=0)
+        best[k]['runs'] += 1
+    return sorted(best.values(), key=lambda e: (-e.get('score', 0), e.get('ts', '')))[:limit]
 
 # ── 结算流水线：画像失败不算请求失败 ──
 def finish(body):

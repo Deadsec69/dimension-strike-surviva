@@ -130,6 +130,26 @@ body{
 .log-act{font:9px var(--mono); letter-spacing:.08em; color:var(--ink-3); background:transparent; border:0; padding:0; cursor:pointer}
 .log-act:hover{color:var(--ink)}
 .log-act.is-arm{color:var(--alert)}
+.log-title.is-link{cursor:pointer} .log-title.is-link:hover{color:var(--ink)}
+.board li{cursor:pointer}
+
+/* ── 全榜弹窗：点榜标题 / 任一行打开；导出 CSV ── */
+.modal[hidden]{display:none}                                        /* .modal 的 display:flex 会压过 hidden 属性 */
+.modal{position:fixed; z-index:6; inset:0; display:flex; align-items:center; justify-content:center; padding:var(--pad);
+  background:rgba(3,5,8,.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px)}
+.modal-box{width:min(960px,100%); max-height:min(80vh,720px); display:flex; flex-direction:column; gap:12px;
+  background:var(--panel); border:1px solid var(--line); padding:16px; box-sizing:border-box}
+.modal-head{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+.modal-head .panel-title{flex:1 1 auto; padding:0; border:0}
+.modal-actions{display:flex; gap:8px} .modal-actions .btn-sm{width:auto; padding:6px 12px}
+.modal-body{overflow:auto; min-height:0; scrollbar-width:thin}
+.btable{width:100%; border-collapse:collapse; font:11px var(--mono); letter-spacing:.04em; color:var(--ink-2)}
+.btable th{position:sticky; top:0; background:var(--void-2); font-weight:600; font-size:9px; letter-spacing:.14em; color:var(--ink-3); text-align:left; padding:6px 8px; border-bottom:1px solid var(--line)}
+.btable td{padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:middle}
+.btable .r{text-align:right} .btable td.name{font-family:var(--cjk); color:var(--ink)} .btable td.score{color:var(--cold)}
+.btable tr.is-me td{color:var(--ink)} .btable tr.is-me td.name{color:var(--amber-live)}
+.btable .thumb{display:block; width:52px; height:29px; border:1px solid var(--line); overflow:hidden; background:var(--void-2)}
+.btable .thumb img{display:block; width:100%; height:100%; object-fit:cover}
 .log{
   list-style:none; margin:0; padding:0; display:flex; flex-direction:column-reverse; gap:8px;
   max-height:min(28vh,190px); overflow-y:auto; scrollbar-width:thin;
