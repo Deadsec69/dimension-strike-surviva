@@ -130,5 +130,21 @@
   "ts": "2026-09-21T01:12:01+05:30",
   "ending": "heat",
   "warnings": []
+ },
+ {
+  "id": "1a0c06a7437-82b7",
+  "username": "gra12",
+  "score": 79,
+  "kills": 7,
+  "blocks": 22,
+  "elapsed": 111.2,
+  "tier": "human",
+  "emotion": "defeated",
+  "emotion_zh": "沮丧",
+  "portrait": "runs/20260921-013329_gra12_human.jpg",
+  "pending": false,
+  "ts": "2026-09-21T01:33:17+05:30",
+  "ending": "heat",
+  "warnings": []
  }
 ]

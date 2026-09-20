@@ -13,14 +13,14 @@ import { tierOf, TIER_ZH, TIER_EN } from './board.js';
 const MAX_ROCKS  = 64;                  // InstancedMesh 容量。同屏很少超过 8，64 是零成本的余量
 const SPAWN_R    = 2.8;                 // 16:9 下画面半宽 2.58：从画外一点点进来；固定半径 ⇒ 落地时间一致
 /* 难度按分定档（分只来自陨石）：起步慢；125 分（二十五颗）快一点；200 分（四十颗）再快；
-   往后每 100 分再加一成。时间再乘一层：一分钟、三分钟各快一档——只拦不打的人也躲不过钟表。
+   往后每 100 分再加一成。时间再乘一层：半分钟、一分钟各快一档——只拦不打的人也躲不过钟表。
    两层相乘后封顶。目标值用 τ=4s 逼近，换档读作「快了一点」而不是跳变；已经在飞的石头不改速。 */
 const STAGES = [
   { at:0,   v:0.32, iv:1.9, dbl:0.00 },
   { at:125, v:0.42, iv:1.4, dbl:0.15 },
   { at:200, v:0.55, iv:1.0, dbl:0.35 }
 ];
-const TIME_STEPS = [ { at:60, k:1.15 }, { at:180, k:1.30 } ];   // k = 速度倍率，间隔除以 k；两颗一起的概率只看分
+const TIME_STEPS = [ { at:30, k:1.15 }, { at:60, k:1.30 } ];    // k = 速度倍率，间隔除以 k；两颗一起的概率只看分
 const STAGE_STEP = 100, STAGE_GAIN = 0.10, V_CAP = 0.8, IV_FLOOR = 0.7, DBL_CAP = 0.5;
 const STAGE_TAU  = 4;
 const SPAWN_JIT  = 0.35;                // 间隔 ±35%：去掉节拍器感
@@ -35,7 +35,8 @@ const T0 = 288, T_LIMIT = 640;          // 640：熔融（620→900）刚起、h
 export const T_WARN = 560, T_CRIT = 610;  // 再挨两下 / 再挨一下：屏幕正中要喊
 const P_PER_PLATE = 0.5;                // 两块 → 宜居 0.61，七块 → 0.10。代价要疼，才是决策
 /* ── 护盾 ── */
-const PLATE_HP = 1, PLATE_W = 0.42, PLATE_H = 0.28, PLATE_T = 0.02, PLATE_MAX = 8;   // 一块挡一颗；满 8 块时新的顶掉最旧的
+const PLATE_HP = 2, PLATE_W = 0.42, PLATE_H = 0.28, PLATE_T = 0.02, PLATE_MAX = 8;   // 一块挡两颗；满 8 块时新的顶掉最旧的
+const PLATE_LIFE = 7, PLATE_FADE = 1.0;  // 秒。盾只活 7 秒，最后 1 秒渐隐——它是临时的东西，不是城墙
 const PLATE_RMIN = 1.35, PLATE_RMAX = 2.3;   // 下限在大气壳（1.14）外留余量；上限在画内且在生成环内——石头到盾前已可见
 const PLATE_TILT = 0.6;                 // 弧度。盾面从「正对镜头」向「径向外」倾 35°：既看得见面，又迎着来石
 /* ── 停留 ── */
@@ -148,7 +149,7 @@ void main(){
 const PLATE_FRAG = `
 precision highp float;
 uniform vec3 uLightDir;
-uniform float uHP, uBorn, uTime, uSeed;
+uniform float uHP, uBorn, uDie, uTime, uSeed;
 varying vec2 vUv;
 varying vec3 vN, vW;
 ${NOISE}
@@ -159,13 +160,14 @@ void main(){
   float ndl = abs(dot(N, L));                                     // 薄片两面受光
   float fres = pow(1.0 - abs(dot(N, V)), 2.0);
   vec3 body = vec3(0.12, 0.30, 0.56) * (0.25 + 0.75 * ndl) + vec3(0.20, 0.42, 0.70) * fres * 0.5;
-  // 裂纹只在 HP 掉到 0 后出现（一块挡一颗：活着的盾没有裂纹）。不发光：那是缺损，不是能量
-  float cr = pow(clamp(1.0 - abs(fbm3(vec3(vUv * 6.0, uSeed))) * 7.0, 0.0, 1.0), 2.0) * step(uHP, 0.5);
+  // 裂纹只在 HP 掉到 1 后出现。不发光：那是缺损，不是能量
+  float cr = pow(clamp(1.0 - abs(fbm3(vec3(vUv * 6.0, uSeed))) * 7.0, 0.0, 1.0), 2.0) * step(uHP, 1.5);
   body = mix(body, vec3(0.55, 0.62, 0.70), cr * 0.8);
   float born = smoothstep(0.0, 0.25, uTime - uBorn);              // 生成那一下边框闪亮
   vec3 col = body + vec3(0.30, 0.62, 1.15) * edge * (2.0 + 2.5 * (1.0 - born));   // 边框 >1.1 交给 bloom；冷蓝属于观测者
-  float a = (0.55 + 0.45 * edge) * mix(0.75, 1.0, min(1.0, uHP));
-  gl_FragColor = vec4(col, a);
+  float a = (0.55 + 0.45 * edge) * mix(0.75, 1.0, uHP * 0.5);
+  float fade = 1.0 - smoothstep(uDie - ${PLATE_FADE.toFixed(2)}, uDie, uTime);   // 到寿的最后一秒渐隐
+  gl_FragColor = vec4(col * mix(0.6, 1.0, fade), a * fade);
 }
 `;
 
@@ -272,7 +274,7 @@ export class Survival {
     this.platePool = [];
     for(let i = 0; i < PLATE_MAX; i++){
       const mat = new THREE.ShaderMaterial({
-        uniforms:{ uLightDir:{ value:this.stage.lightDir }, uHP:{ value:PLATE_HP }, uBorn:{ value:0 }, uTime:{ value:0 }, uSeed:{ value:0 } },
+        uniforms:{ uLightDir:{ value:this.stage.lightDir }, uHP:{ value:PLATE_HP }, uBorn:{ value:0 }, uDie:{ value:1e9 }, uTime:{ value:0 }, uSeed:{ value:0 } },
         vertexShader:PLATE_VERT, fragmentShader:PLATE_FRAG,
         transparent:true, depthWrite:false, depthTest:true, side:THREE.DoubleSide
       });
@@ -395,6 +397,7 @@ export class Survival {
     this.t += dt; this.elapsed += dt;
     this._spawnClock(dt);
     this._moveRocks(dt);
+    this._agePlates();
     this._dwell(dt);
     this._beams(dt);
     this.score = this.kills * KILL_POINTS + this.blocks * BLOCK_POINTS;   // 先记分，再判生死：_cool 里的 finish() 要有最后一句话
@@ -411,7 +414,7 @@ export class Survival {
     const top = STAGES[STAGES.length - 1];
     const extra = s === STAGES.length - 1 ? Math.floor((this.score - top.at) / STAGE_STEP) : 0;   // 200 分之后每 100 分再加一成
     let tk = 1, ts = 0;
-    for(const st of TIME_STEPS) if(this.elapsed >= st.at){ tk = st.k; ts++; }                     // 一分钟 ×1.15，三分钟 ×1.30
+    for(const st of TIME_STEPS) if(this.elapsed >= st.at){ tk = st.k; ts++; }                     // 半分钟 ×1.15，一分钟 ×1.30
     const k = Math.pow(1 + STAGE_GAIN, extra) * tk;
     return { stage:s + extra + ts, v:Math.min(V_CAP, STAGES[s].v * k), iv:Math.max(IV_FLOOR, STAGES[s].iv / k),
              dbl:Math.min(DBL_CAP, STAGES[s].dbl + (extra ? 0.15 : 0)) };
@@ -582,13 +585,22 @@ export class Survival {
     mesh.scale.setScalar(0.01);
     mesh.visible = true;
     const u = mesh.material.uniforms;
-    u.uHP.value = PLATE_HP; u.uBorn.value = this.fxT; u.uSeed.value = Math.random() * 10;
-    this.plates.push({ mesh, hp:PLATE_HP, inv, born:this.fxT });
+    u.uHP.value = PLATE_HP; u.uBorn.value = this.fxT; u.uDie.value = this.fxT + PLATE_LIFE; u.uSeed.value = Math.random() * 10;
+    this.plates.push({ mesh, hp:PLATE_HP, inv, born:this.fxT, die:this.fxT + PLATE_LIFE });
     this.platesMade++;
     this.P = 1 + this.platesMade * P_PER_PLATE;
     this._say('sv_plate');
   }
 
+  /* 到寿的盾散掉：一小蓬冷光，不算拦截。渐隐由着色器按 uDie 自己算 */
+  _agePlates(){
+    for(let j = this.plates.length - 1; j >= 0; j--){
+      const pl = this.plates[j];
+      if(this.fxT < pl.die) continue;
+      this._burst(pl.mesh.position, COLD, null, 10);
+      this._removePlate(j);
+    }
+  }
   _removePlate(j){
     const pl = this.plates[j];
     pl.mesh.visible = false;
