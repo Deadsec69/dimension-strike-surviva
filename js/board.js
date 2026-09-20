@@ -42,15 +42,22 @@ export class Board {
     this.rows = []; this.local = []; this.run = null; this.seq = 0;
     this.capture = captureSnapshot;   // 无头测试可替换：__ds.board.capture = () => B64
     // 清榜要按两下：第一下举起来（CONFIRM?），4 秒内第二下才清。不用 confirm()：那是浏览器的弹窗，不是这台控制台的
-    const btn = this.el.boardClear;
-    if(btn) btn.addEventListener('click', () => {
-      if(btn.classList.contains('is-arm')){ this._disarm(); this.clearBoard(); return; }
-      btn.classList.add('is-arm'); btn.textContent = 'CONFIRM?';
-      this._armT = setTimeout(() => this._disarm(), 4000);
-    });
+    // 两个入口：榜标题右边的小字，和弹窗里的按钮
+    this._wireClear(this.el.boardClear, 'CLEAR', 'CONFIRM?');
+    this._wireClear(this.el.boardClearModal, 'Clear board', 'Click again to confirm');
     this._wireModal();
   }
-  _disarm(){ const btn = this.el.boardClear; clearTimeout(this._armT); if(btn){ btn.classList.remove('is-arm'); btn.textContent = 'CLEAR'; } }
+  _wireClear(btn, idle, armed){
+    if(!btn) return;
+    btn.addEventListener('click', () => {
+      if(btn.classList.contains('is-arm')){ this._disarm(); this.clearBoard(); this.closeModal(); return; }
+      this._disarm();
+      btn.classList.add('is-arm'); btn.textContent = armed;
+      this._armT = setTimeout(() => this._disarm(), 4000);
+    });
+    (this._clearBtns ??= []).push([btn, idle]);
+  }
+  _disarm(){ clearTimeout(this._armT); for(const [btn, idle] of this._clearBtns || []){ btn.classList.remove('is-arm'); btn.textContent = idle; } }
 
   /* ── 全榜弹窗：点标题或任一行打开；Esc / 背景 / Close 关；Export CSV 下载当前榜 ── */
   _wireModal(){

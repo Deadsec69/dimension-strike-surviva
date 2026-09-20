@@ -19,7 +19,8 @@ const el = {
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
   heatWarn:$('heatWarn'),
   userName:$('userName'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
-  boardModal:$('boardModal'), boardRows:$('boardRows'), boardCsv:$('boardCsv'), boardClose:$('boardClose'), modalCount:$('modalCount')
+  boardModal:$('boardModal'), boardRows:$('boardRows'), boardCsv:$('boardCsv'), boardClose:$('boardClose'), modalCount:$('modalCount'),
+  boardClearModal:$('boardClearModal')
 };
 
 const stage = new PlanetStage(el.stage);
