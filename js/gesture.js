@@ -1,23 +1,26 @@
-// 手势输入 —— MediaPipe GestureRecognizer
+// Gesture input - MediaPipe GestureRecognizer
 //
-// 用官方训练好的手势分类器，而不是自己量关节距离定阈值：
-// 模型直接输出 Closed_Fist / Open_Palm 等八类标签并带置信度，
-// 对光照、手的朝向和个体差异的鲁棒性远好于手搓规则。
-// gesture_recognizer.task 内部已打包 hand_landmarker，无需另外加载。
+// Uses the officially trained gesture classifier rather than hand-rolled joint-distance thresholds:
+// the model outputs eight labelled classes (Closed_Fist / Open_Palm and friends) with confidences,
+// and is far more robust to lighting, hand orientation and individual differences than any rule we
+// could write. gesture_recognizer.task bundles hand_landmarker internally, so nothing else to load.
 //
-// 但单帧分类结果不能直接当输入，这里是一台状态机：nohand → idle ⇄ grab / charge → fired。
-//   idle    手在画面里、没在下令。静止且放松 300ms 后才「武装」。
-//   grab    在拨动星球。在动的手一律是拨，不管什么手形——动得快时姿势本身不可信。
-//   charge  静止的握拳/摊掌在蓄力。握满才发动，中途松开或动起来就中断。
-//   fired   已发动，必须放松（两个武器分数都掉下来）才回到 idle。
-// 判词期间切到双手模式，只认「击掌」，拨动与武器一律挂起。
-// 手势环路走真实时间，与场景的命中停顿无关。
+// But a single frame's classification can't be used as input directly. This is a state machine:
+// nohand -> idle <-> grab / charge -> fired.
+//   idle    hand in frame, not commanding anything. It only "arms" after 300ms still and relaxed.
+//   grab    spinning the planet. A moving hand is always a spin whatever its shape - while it moves
+//           fast the pose itself can't be trusted.
+//   charge  a still fist/palm building up. It only fires at full charge; releasing or moving aborts.
+//   fired   fired; must relax (both weapon scores drop) before returning to idle.
+// While the verdict is up it switches to two-hand mode and only watches for a clap; spin and weapons
+// are suspended.
+// The gesture loop runs on real time, independent of the scene's hit-stop.
 //
-// 路径解析有两套规则，别写混：
-//   import 语句  → 相对本模块（js/），故用 '../vendor/...'
-//   运行时 fetch → 相对文档 URL（根目录），故用 './vendor/...'
+// Two different path rules here, don't mix them up:
+//   import statements  -> relative to this module (js/), hence '../vendor/...'
+//   runtime fetch      -> relative to the document URL (the root), hence './vendor/...'
 //
-// 资源全部本地化，不访问 storage.googleapis.com，国内可直连。
+// All assets are local; storage.googleapis.com is never contacted at runtime.
 
 import { GestureRecognizer, FilesetResolver } from '../vendor/vision_bundle.mjs';
 
@@ -30,12 +33,14 @@ const CONNECTIONS = [
   [0,17]
 ];
 
-const PALM_IDX = [0, 5, 9, 13, 17];   // 掌心 = 腕点与四个掌指关节的平均：比任何单点都稳，手指乱动也不会带偏
+const PALM_IDX = [0, 5, 9, 13, 17];   // palm center = mean of the wrist and the four knuckles: steadier than any single point, and unmoved by the fingers
 const LABEL = { fist:'Fist', palm:'Palm' };
 
-/* ── 类别表。四个类别共用同一套迟滞（进 0.62 / 连续 120ms 低于 0.45 才出）。
-   weapon 标记决定两件事：退出时是否记 weaponEndT（观察模式的起拨抑制），
-   以及冲突时谁赢——静止且确信的武器压过瞄准，反过来永远不成立。 */
+/* Class table. All four classes share one hysteresis (enter at 0.62 / leave only after 120ms
+   continuously below 0.45).
+   The weapon flag decides two things: whether leaving records weaponEndT (which suppresses the start
+   of a spin in observe mode), and who wins a conflict - a still, confident weapon beats aiming, and
+   never the other way round. */
 const CLASS = {
   fist:    { cat:'Closed_Fist', weapon:true  },
   palm:    { cat:'Open_Palm',   weapon:true  },
@@ -44,61 +49,79 @@ const CLASS = {
 };
 const AIM_LABEL = { point:'Aim', victory:'Shield' };
 
-/* ── 指向的几何判据（生存模式）。Pointing_Up 只认竖着的食指，侧着指屏幕角落时分数塌掉，
-   所以再按指尖到腕的距离（按手长归一）补一条软分数：食指伸直、其余三指蜷起。
-   斜坡而不是硬阈值，走同一套迟滞。拇指不看：指向时拇指常常翘着，分类器也不管它。 */
-const EXT_UP = [1.45, 1.60], EXT_DOWN = [1.25, 1.40];   // 伸直 ≥1.6 / 蜷起 ≤1.25，中间是斜坡
-/* ✌️ 再补一条相对判据：食指、中指都明显长过无名指、小指。绝对判据要无名指蜷到 1.25 以下、
-   两指伸到 1.6 以上，可无名指常常跟着中指半张着（≈1.4），V 朝镜头一倾指尖又缩短——两条都塌。
-   比值不受倾角影响（四指一起缩短），半张的无名指也过得去；摊掌四指等长、单指食指中指短，进不来。 */
+/* Geometric test for pointing (survival mode). Pointing_Up only recognizes a vertical index finger,
+   and its score collapses when you point sideways at a corner of the screen. So add a soft score from
+   fingertip-to-wrist distance (normalized by hand length): index extended, the other three curled.
+   Ramps rather than hard thresholds, running through the same hysteresis. The thumb is ignored: it
+   often sticks out while pointing, and the classifier ignores it too. */
+const EXT_UP = [1.45, 1.60], EXT_DOWN = [1.25, 1.40];   // extended >=1.6 / curled <=1.25, a ramp in between
+/* One more, relative test for the V sign: index and middle are clearly longer than ring and pinky.
+   The absolute test needs the ring finger curled below 1.25 and both front fingers past 1.6, but the
+   ring finger often half-follows the middle one (~1.4), and tilting the V toward the camera shortens
+   the tips - both conditions collapse.
+   A ratio is unaffected by tilt (all four shorten together) and tolerates a half-curled ring finger;
+   an open palm has four fingers of equal length and a lone index has a short middle finger, so
+   neither gets in. */
 const V_LEAD = [1.30, 1.42], V_RATIO = [1.18, 1.32];
-const TIP_MIN_CUTOFF = 1.0, TIP_BETA = 20, TIP_D_CUTOFF = 1.0;   // 指尖比掌心抖：静止截止略低
-/* 指尖 → 视口的增益。1.25：手只需走画面中间 80% 就够到屏幕四边，不必伸直胳膊。
-   y 的增益按「视口宽高比 / 画面宽高比」补上去，让手画的圆在屏上仍是圆（16:9 上 ≈1.67）；
-   下限取 x 的增益，上限 2.0，超宽屏也别让 y 灵敏到发抖。 */
+const TIP_MIN_CUTOFF = 1.0, TIP_BETA = 20, TIP_D_CUTOFF = 1.0;   // fingertips shake more than the palm: a slightly lower resting cutoff
+/* Gain from fingertip to viewport. 1.25: the hand only has to cover the middle 80% of the camera
+   frame to reach all four edges of the screen, without straightening your arm.
+   The y gain is scaled by (viewport aspect / camera aspect) so a circle drawn by the hand is still a
+   circle on screen (about 1.67 at 16:9); floored at the x gain and capped at 2.0, so y doesn't become
+   twitchy on an ultra-wide display. */
 const AIM_GAIN = 1.25, AIM_GAIN_MAX = 2.0;
 
-/* 拨动：手在画面里移动多少，折算成多少「像素」交给舞台，用的是和鼠标同一条通路。
-   0.5 个归一化单位（半个画面）约合 350px，也就是两个多弧度——一次挥手拨小半圈。
-   x 要取反：预览用 scaleX(-1) 做了镜像，而关键点是原始图像坐标，不反过来
-   手往右挥星球会往左转。 */
+/* Spin: how far the hand moves in frame, converted into "pixels" for the stage through exactly the
+   same path as the mouse.
+   0.5 normalized units (half the frame) is about 350px, a bit over two radians - one sweep turns it
+   just under half a turn.
+   x must be negated: the preview is mirrored with scaleX(-1) while the landmarks are in raw image
+   coordinates, and without the flip a hand moving right would spin the planet left. */
 const DRAG_PX_X = -700, DRAG_PX_Y = 500;
-const DEAD_ZONE = 0.0008;   // 滤波后的死区可以很小：静止抑制已由滤波器负责，太大会吃掉慢拨的起步
+const DEAD_ZONE = 0.0008;   // the post-filter dead zone can be tiny: the filter already suppresses jitter, and a large one would eat the start of a slow spin
 
-/* ── 类别迟滞。进出同一条线，握着不动时置信度会在线上来回跳。
-   不看 None 的分数：它没有校准意义（半握的手可以是 None 0.5 / Closed_Fist 0.45），
-   只按名字取两个武器类别各自的分数。 */
+/* Class hysteresis. With one shared threshold for entering and leaving, a held pose makes the
+   confidence flicker across the line.
+   The None score is ignored: it isn't calibrated for anything (a half-closed hand can read
+   None 0.5 / Closed_Fist 0.45). Each weapon class's score is read by name instead. */
 const ENTER_SCORE = 0.62, EXIT_SCORE = 0.45, EXIT_MS = 120;
-const IDLE_SCORE  = 0.30;   // 两个武器分数都低于它才算「确实没在下令」
-const EDGE = 0.04;          // 掌部关键点贴着画面边缘 4% 以内：手被裁掉一半，分类不可信——这是 Closed_Fist 误报的头号来源
+const IDLE_SCORE  = 0.30;   // both weapon scores must be below this to count as "genuinely not commanding"
+const EDGE = 0.04;          // palm landmarks within 4% of the frame edge: half the hand is cropped and the classification is unreliable - the number one source of false Closed_Fist
 
-/* ── 蓄力。握满才发动，不是摆出来就发动。 */
-const CHARGE_PRE_MS = 100;                       // 静默期：两三帧误判到不了星球
-const CHARGE_MS     = { fist:700, palm:600 };    // 二向箔略短：它没有蓄力可看，等太久像卡住
-const V_CHARGE = 0.30, V_PAUSE = 0.60;           // 掌心速度（归一化单位/秒）：低于前者蓄力推进，之间暂停，高于后者中断
-const V_FAST   = 0.80;                           // 原始（未滤波）速度超过它：解除武装。快动作后必须重新静止才有武器
+/* Charging. It fires at full charge, not the moment the pose appears. */
+const CHARGE_PRE_MS = 100;                       // quiet period: two or three misclassified frames never reach the planet
+const CHARGE_MS     = { fist:700, palm:600 };    // the foil is slightly shorter: it has no charge to show, so a long wait feels stuck
+const V_CHARGE = 0.30, V_PAUSE = 0.60;           // palm speed (normalized units/s): below the first the charge advances, between them it pauses, above the second it aborts
+const V_FAST   = 0.80;                           // raw (unfiltered) speed above this disarms: after a fast movement you must go still again to have a weapon
 
-/* ── 武装 / 起拨 / 掉帧。时间一律走内部时钟（每帧累加、单步封顶 100ms）：
-   不按帧数——昏暗房间里摄像头掉到 15fps，帧数计时全部翻倍；
-   也不直接用 performance.now() 的差——标签页切走再回来会跳几秒，握着的拳当场发动。 */
-const REARM_MS = 300, COOL_MS = 250, LOCK_MS = 1000;   // 放松且静止 300ms + 冷却才重新武装；interrupt() 后锁 1s
-const GRAB_SUPPRESS_MS = 250;                    // 武器姿势结束后不起拨：过渡帧会被判成 None，而 None 就是拨
-const GRACE_MS = 100;                            // 追踪丢失这么久以内蓄力与武装都不变，撑过两三帧掉帧
-const FLICK_MS = 600, SETTLE_MS = 150;           // 快甩出画面后 600ms 内回来：静止 150ms 才算「接住」，否则让它继续转
+/* Arming / starting a spin / dropped frames. All timing runs on an internal clock (accumulated per
+   frame, each step capped at 100ms):
+   not frame counts - in a dim room the camera drops to 15fps and every frame-counted timer doubles;
+   and not raw performance.now() deltas either - switching away from the tab and back jumps several
+   seconds, firing a held fist on the spot. */
+const REARM_MS = 300, COOL_MS = 250, LOCK_MS = 1000;   // relaxed and still for 300ms plus a cooldown before rearming; interrupt() locks for 1s
+const GRAB_SUPPRESS_MS = 250;                    // no spin right after a weapon pose ends: the transition frames read as None, and None means spin
+const GRACE_MS = 100;                            // tracking loss shorter than this leaves charge and arming untouched, riding out a few dropped frames
+const FLICK_MS = 600, SETTLE_MS = 150;           // returning within 600ms of flicking out of frame: 150ms still counts as "catching" it, otherwise let it keep spinning
 
-/* ── 掌心滤波：One-Euro。截止频率随速度上升——静止时 1.2Hz 把抖动滤干净，一挥手截止拉高、
-   几乎零延迟；定比 EMA 只有一个旋钮，压得住抖就跟不上手。β 的量纲是 Hz/(单位/秒)：
-   文献里 0.02~0.05 是按像素速度调的，这里坐标归一化（约 1/640），要放大到 20 左右才是同一件事。 */
+/* Palm filtering: One-Euro. The cutoff rises with speed - 1.2Hz at rest filters the shake away, and
+   a sweep pushes the cutoff up for near-zero latency. A fixed-ratio EMA has only one knob: tight
+   enough to kill the jitter means too slow to follow the hand.
+   beta is in Hz per (unit/s): the 0.02-0.05 in the literature is tuned for pixel speeds, and these
+   coordinates are normalized (roughly 1/640), so about 20 is the same thing. */
 const PALM_MIN_CUTOFF = 1.2, PALM_BETA = 20, PALM_D_CUTOFF = 1.0;
-const VEL_TAU = 0.06;                            // 门槛用的速度另走一条短低通；滤波器自己 1Hz 的导数太滞后
+const VEL_TAU = 0.06;                            // the speed used for thresholds gets its own short low-pass; the filter's own 1Hz derivative lags too much
 
-/* ── 击掌（只在判词期间）。距离按手长（腕 0 → 中指根 9）归一，离摄像头远近都成立。
-   击掌是一个动作，不是一个姿势：先分开过、再以足够速度合拢才算；两手一直贴着不触发。
-   不看类别——正对摄像头的击掌是侧着的，合掌那一刻 Open_Palm 的分数会塌掉。 */
-const CLAP_FAR = 2.2, CLAP_FAR_MS = 500;         // 500ms 内先分开过这么远
-const CLAP_NEAR = 1.1, CLAP_V = 4.0;             // 合拢到一个多手长以内，且合拢速度 ≥ 4 手长/秒（连续两帧，或单帧 ≥ 2 倍）
-const CLAP_LOSS_D = 1.9, CLAP_LOSS_MS = 120;     // 快速合拢中少了一只手（合掌那一刻常遮住另一只），上一帧够近也算
-const CLAP_OPEN = 1.55;                          // 四指尖到腕的平均距离 / 手长（张开约 1.8~2.0，握拳约 1.0）
+/* Clap (only while the verdict is up). Distances are normalized by hand length (wrist 0 -> middle
+   knuckle 9), so it holds at any distance from the camera.
+   A clap is a motion, not a pose: the hands must have been apart and then come together fast enough;
+   two hands simply resting together never trigger it.
+   Classes are ignored - a clap facing the camera is edge-on, and Open_Palm's score collapses at the
+   moment the hands meet. */
+const CLAP_FAR = 2.2, CLAP_FAR_MS = 500;         // must have been this far apart within the last 500ms
+const CLAP_NEAR = 1.1, CLAP_V = 4.0;             // closing to within about one hand length at >= 4 hand lengths/s (two frames in a row, or one frame at >= 2x)
+const CLAP_LOSS_D = 1.9, CLAP_LOSS_MS = 120;     // a hand disappears mid-close (they often occlude each other as they meet): near enough on the previous frame still counts
+const CLAP_OPEN = 1.55;                          // mean fingertip-to-wrist distance / hand length (open is about 1.8-2.0, a fist about 1.0)
 const CLAP_COOL_MS = 1000;
 
 const damp = (cur, tgt, tau, dt) => cur + (tgt - cur) * (1 - Math.exp(-dt / tau));
@@ -118,10 +141,11 @@ class OneEuro {
   }
 }
 
-// 双手几何。归一化坐标是各向异性的（默认 4:3），x 要按宽高比缩放再量距离。
+// Two-hand geometry. Normalized coordinates are anisotropic (4:3 by default), so x is scaled by the aspect ratio before measuring distance.
 const dist = (a, b, asp) => Math.hypot((a.x - b.x) * asp, a.y - b.y);
 const handSize = (lm, asp) => dist(lm[0], lm[9], asp);
-/* 指向 / ✌️ 的几何软分数（纯函数，便于测试）。指尖到腕的距离按手长（腕→中指根）归一。 */
+/* Soft geometric scores for pointing / the V sign (a pure function, so it can be tested).
+   Fingertip-to-wrist distances are normalized by hand length (wrist -> middle knuckle). */
 export function poseScores(lm, asp){
   const size = Math.max(1e-4, handSize(lm, asp));
   const ext = i => dist(lm[i], lm[0], asp) / size;
@@ -143,7 +167,7 @@ function isOpen(lm, size, asp){
   for(const i of [8, 12, 16, 20]) s += dist(lm[i], lm[0], asp) / size;
   return s / 4 >= CLAP_OPEN;
 }
-const fingersUp = lm => lm[12].y < lm[0].y;   // 图像 y 向下
+const fingersUp = lm => lm[12].y < lm[0].y;   // image y points down
 
 export class GestureInput {
   constructor({ video, canvas, onGesture, onState, onDrag, onCharge, canFire, onAim }){
@@ -156,29 +180,29 @@ export class GestureInput {
     this.onCharge = onCharge || (() => {});
     this.canFire = canFire || (() => true);
     this.onAim = onAim || (() => {});
-    this.mode = 'observe';   // 'observe' | 'survive'：生存模式不拨动，指向 / 剪刀手变成准星
+    this.mode = 'observe';   // 'observe' | 'survive': survival has no spin, and pointing / V become the crosshair
 
     this.rec = null;
     this.stream = null;
     this.running = false;
     this.lastVideoTime = -1;
     this.lastNow = 0;
-    this.clock = 0;          // 内部时钟（ms），见上面的说明
+    this.clock = 0;          // internal clock (ms), see the note above
     this.dtMs = 0;
     this.errN = 0;
 
-    this.wantClap = false;   // main.js 决定；判词期间为真
+    this.wantClap = false;   // set by main.js; true while the verdict is up
     this.numHands = 1;
     this.switching = false;
 
     this.fx = new OneEuro(PALM_MIN_CUTOFF, PALM_BETA, PALM_D_CUTOFF);
     this.fy = new OneEuro(PALM_MIN_CUTOFF, PALM_BETA, PALM_D_CUTOFF);
-    this.p = null;           // 滤波后的掌心
-    this.vel = 0;            // 短低通后的掌心速度，供静止判断
-    this.vRaw = 0;           // 原始速度，供快动作判断
-    this.anchor = null;      // 拨动的参考点
-    this.tx = new OneEuro(TIP_MIN_CUTOFF, TIP_BETA, TIP_D_CUTOFF);   // 指尖各走一对滤波器，不和掌心共用：
-    this.ty = new OneEuro(TIP_MIN_CUTOFF, TIP_BETA, TIP_D_CUTOFF);   // 掌心是速度裁判，指尖是准星
+    this.p = null;           // filtered palm center
+    this.vel = 0;            // palm speed after the short low-pass, used for the stillness test
+    this.vRaw = 0;           // raw speed, used for the fast-movement test
+    this.anchor = null;      // reference point for a spin
+    this.tx = new OneEuro(TIP_MIN_CUTOFF, TIP_BETA, TIP_D_CUTOFF);   // the fingertip gets its own filter pair rather than sharing the palm's:
+    this.ty = new OneEuro(TIP_MIN_CUTOFF, TIP_BETA, TIP_D_CUTOFF);   // the palm judges speed, the fingertip is the crosshair
     this.aiming = false;
 
     this._toNoHand();
@@ -187,7 +211,7 @@ export class GestureInput {
     this.firedT = -Infinity; this.lockUntil = 0;
     this.lostT = -Infinity; this.lostV = 0;
     this._resetClap();
-    this.clapT = -Infinity;  // 冷却跨越模式切换
+    this.clapT = -Infinity;  // the cooldown survives a mode switch
   }
 
   async start(){
@@ -202,7 +226,7 @@ export class GestureInput {
 
     this.onState('Loading model…');
     const fileset = await FilesetResolver.forVisionTasks('./vendor/wasm');
-    const hands = this.wantClap ? 2 : 1;   // 摄像头可能是在判词已经出来之后才开的
+    const hands = this.wantClap ? 2 : 1;   // the camera may have been turned on after the verdict already appeared
     this.rec = await GestureRecognizer.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: './models/gesture_recognizer.task', delegate: 'GPU' },
       runningMode: 'VIDEO',
@@ -230,7 +254,7 @@ export class GestureInput {
     this._toNoHand(); this._resetClap();
     this.running = true;
     this.onState('Standby', 'live');
-    this._applyHands();      // 等模型的这段时间里 wantClap 可能又变了
+    this._applyHands();      // wantClap may have changed again while the model was loading
     this._loop();
   }
 
@@ -241,14 +265,15 @@ export class GestureInput {
     this.stream = null;
     this.video.srcObject = null;
     const rec = this.rec; this.rec = null;
-    try{ rec?.close?.(); }catch{}   // start() 每次新建一个识别器，不关就是每开一次摄像头漏一个
+    try{ rec?.close?.(); }catch{}   // start() builds a new recognizer each time; without this, every camera toggle leaks one
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this._toNoHand();
     this.onState('Off');
   }
 
-  /* 外部打断：换样本、复位、判词出现。结束拨动、取消蓄力、解除武装并锁 1 秒——
-     换样本那一刻拳头多半还握着，不打断的话 0.3 秒后就会砸在新样本上。 */
+  /* Interrupt from outside: next specimen, reset, verdict appearing. End any spin, cancel the charge,
+     disarm and lock for 1s - the fist is usually still clenched when the specimen changes, and
+     without this it lands on the new one 0.3s later. */
   interrupt(){
     this._abandon();
     this.armed = false;
@@ -257,14 +282,16 @@ export class GestureInput {
     this._resetClap();
   }
 
-  /* 生存模式：不拨动，武器照旧，指向 / 剪刀手变成准星。切换即打断——那一刻手上多半还有姿势。 */
+  /* Survival mode: no spin, weapons unchanged, pointing / V become the crosshair. Switching
+     interrupts - there is usually still a pose on the hand at that moment. */
   setMode(m){
     if(m === this.mode) return;
     this.mode = m;
     this.interrupt();
   }
 
-  /* 判词期间只认击掌：切到两只手。平时只跟一只手——省一半算力，也没有第二只手来抢星球。 */
+  /* While the verdict is up only claps matter, so switch to two hands. Otherwise track one hand -
+     half the compute, and no second hand competing for the planet. */
   setClapMode(on){
     on = !!on;
     if(this.wantClap === on) return;
@@ -281,8 +308,9 @@ export class GestureInput {
     this.switching = true;
     this.onState('Switching…', 'live');
     try{
-      // 不带 baseOptions 时是同步重建图，但仍按 promise 处理。numHands 在这个 bundle 里是
-      // 无条件写入的（t.numHands ?? 1），所以必须显式给，否则 setOptions({}) 会悄悄退回一只手。
+      // Without baseOptions this rebuilds the graph synchronously, but it is still handled as a
+      // promise. numHands is written unconditionally in this bundle (t.numHands ?? 1), so it has to
+      // be passed explicitly - otherwise setOptions({}) quietly falls back to one hand.
       await rec.setOptions({ numHands: want });
     }catch(e){
       console.warn('[gesture] setOptions failed, staying in one-hand mode', e);
@@ -290,11 +318,11 @@ export class GestureInput {
       return;
     }
     this.switching = false;
-    if(rec !== this.rec) return;       // 切换途中 stop()/start() 换了识别器：这次结果作废
+    if(rec !== this.rec) return;       // stop()/start() swapped the recognizer mid-switch: discard this result
     this.numHands = want;
     this._resetClap();
     this._toNoHand();
-    if((this.wantClap ? 2 : 1) !== this.numHands) this._applyHands();   // 切的过程中目标又变了
+    if((this.wantClap ? 2 : 1) !== this.numHands) this._applyHands();   // the target changed again during the switch
   }
 
   _loop(){
@@ -304,13 +332,14 @@ export class GestureInput {
 
     const vt = this.video.currentTime;
     if(vt === this.lastVideoTime) return;
-    // 两套时间：识别器要 performance.now()（同一张图内必须单调），
-    // 滤波与速度要 video.currentTime 的差（真实的采样间隔；墙钟的差会与摄像头节拍拍频）。
+    // Two clocks: the recognizer needs performance.now() (it must be monotonic within one image),
+    // while filtering and speed need deltas of video.currentTime (the real sampling interval; wall
+    // clock deltas beat against the camera's own cadence).
     const now = performance.now();
     this.dtMs = Math.min(100, now - this.lastNow);
     this.lastNow = now;
     this.clock += this.dtMs;
-    const stall = this.lastVideoTime < 0 || vt - this.lastVideoTime > 0.15;   // 首帧、标签页节流、摄像头卡住
+    const stall = this.lastVideoTime < 0 || vt - this.lastVideoTime > 0.15;   // first frame, throttled tab, or a stalled camera
     const dt = Math.min(0.1, Math.max(1 / 60, vt - this.lastVideoTime));
     this.lastVideoTime = vt;
 
@@ -335,18 +364,18 @@ export class GestureInput {
     else this._step(res, hands[0] ?? null, dt, stall);
   }
 
-  /* ── 单手状态机 ── */
+  /* -- One-hand state machine -- */
   _step(res, lm, dt, stall){
     if(!lm){
-      if(this.st === 'grab'){                        // 立刻松手，惯性交给舞台
+      if(this.st === 'grab'){                        // let go at once and hand the inertia to the stage
         this.onDrag('end');
         this.lostT = this.clock; this.lostV = this.vel;
         this.st = 'idle';
       }
-      this._resetPalm();                             // 位置滤波不跨掉帧：回来时不能吐出一个巨大的位移
-      if(this.clock - this.seenT < GRACE_MS) return; // 短暂丢失：蓄力计时、武装状态原样保留
+      this._resetPalm();                             // position filtering must not span dropped frames: it would emit one huge jump on return
+      if(this.clock - this.seenT < GRACE_MS) return; // brief loss: charge timing and armed state are preserved
       if(this.st === 'charge' && this.k > 0) this.onCharge(this.kind, 0);
-      this._toNoHand();                              // 离开画面 = 暂停，不是重新武装
+      this._toNoHand();                              // leaving the frame is a pause, not a rearm
       this.onState('Standby', 'live');
       return;
     }
@@ -372,7 +401,7 @@ export class GestureInput {
     const label = LABEL[this.cls] ?? LABEL[this.kind] ?? '';
     switch(this.st){
       case 'idle': {
-        if(this.cls && this.vel < V_PAUSE){          // 静止的武器姿势
+        if(this.cls && this.vel < V_PAUSE){          // a still weapon pose
           if(!this.armed) this.onState('Cooldown', 'live');
           else if(!this.canFire()) this.onState('Unavailable', 'live');
           else {
@@ -382,22 +411,22 @@ export class GestureInput {
           }
           break;
         }
-        // 在动的手一律是拨，不管什么手形
+        // A moving hand is always a spin, whatever its shape
         if(this.clock - this.weaponEndT < GRAB_SUPPRESS_MS){ this.onState(this.armed ? 'Standby' : 'Cooldown', 'live'); break; }
-        if(this.clock - this.lostT < FLICK_MS && this.lostV > V_FAST){   // 快甩出画面后回来
-          if(this.vRaw > V_FAST) this._beginDrag();                     // 新的一挥：直接抓（清速无害，手在动）
-          else if(still){                                               // 静止下来：这是有意接住
+        if(this.clock - this.lostT < FLICK_MS && this.lostV > V_FAST){   // back after flicking out of frame
+          if(this.vRaw > V_FAST) this._beginDrag();                     // a new sweep: grab straight away (clearing speed is harmless, the hand is moving)
+          else if(still){                                               // gone still: this is a deliberate catch
             if(this.settleT < 0) this.settleT = this.clock;
             if(this.clock - this.settleT >= SETTLE_MS) this._beginDrag();
             else this.onState('Standby', 'live');
-          }else{ this.settleT = -1; this.onState('Standby', 'live'); }     // 漂着的手：让星球继续转
+          }else{ this.settleT = -1; this.onState('Standby', 'live'); }     // a drifting hand: let the planet keep spinning
           break;
         }
         this._beginDrag();
         break;
       }
       case 'grab': {
-        // 拨动优先：拨动中出现的武器姿势只在手慢下来之后才作数
+        // Spin has priority: a weapon pose appearing mid-spin only counts once the hand slows down
         if(this.cls && this.vel < V_PAUSE){
           this.onDrag('end'); this.weaponEndT = this.clock; this.st = 'idle';
           this.onState(`${label} hold still`, 'live');
@@ -416,18 +445,19 @@ export class GestureInput {
     }
   }
 
-  // 蓄力与已发动两态在观察 / 生存模式里完全相同，抽出来共用
+  // The charge and fired states are identical in observe and survival mode, so they are shared
   _stepCharge(score, label){
-    if(this.cls !== this.kind || this.vel >= V_PAUSE){   // 松开了，或手在动：中断
+    if(this.cls !== this.kind || this.vel >= V_PAUSE){   // released, or the hand is moving: abort
       if(this.k > 0) this.onCharge(this.kind, 0);
       this.k = 0; this.weaponEndT = this.clock; this.st = 'idle';
-      // 中断也解除武装：握拳张开成摊掌、就地停住，不该 0.6 秒后变成一记二向箔
+      // Aborting also disarms: opening a fist into a palm and holding still shouldn't become a foil strike 0.6s later
       this.armed = false;
       this.onState('Cooldown', 'live');
       return;
     }
-    // 分数掉进迟滞带、或手在微动：暂停，不推进也不中断。中断得等退出确认——
-    // 否则 85% 时松手，那 120ms 的退出延迟会把它送到 100%。
+    // Score dipped into the hysteresis band, or the hand twitched: pause, neither advancing nor
+    // aborting. Aborting waits for the exit to be confirmed - otherwise releasing at 85% would be
+    // carried to 100% by that 120ms exit delay.
     if(score < EXIT_SCORE || this.vel >= V_CHARGE){
       this.pausedMs += this.dtMs;
       this.onState(`${label} hold still`, 'live');
@@ -443,7 +473,7 @@ export class GestureInput {
       this.onState(`${label} charging ${Math.round(this.k * 20) * 5}%`, 'live');
     }
   }
-  _stepFired(idle, label){                            // 必须放松才回到 idle
+  _stepFired(idle, label){                            // must relax before returning to idle
     if(idle){
       this.onCharge(this.kind, 0); this.k = 0;
       this.weaponEndT = this.clock; this.st = 'idle';
@@ -451,12 +481,13 @@ export class GestureInput {
     }else this.onState(`${label} fired`, 'live');
   }
 
-  /* ── 生存模式的单手状态机：没有 grab；指向 / 剪刀手发准星，武器照旧 ── */
+  /* -- One-hand state machine for survival mode: no grab; pointing / V drive the crosshair,
+        weapons unchanged -- */
   _stepSurvive(res, lm, dt, stall){
     if(!lm){
-      this._aimOff();                                  // 准星立刻收：没有手就没有靶
+      this._aimOff();                                  // drop the crosshair at once: no hand, no target
       this._resetPalm(); this._resetTip();
-      if(this.clock - this.seenT < GRACE_MS) return;   // 短暂丢失：蓄力、武装原样保留
+      if(this.clock - this.seenT < GRACE_MS) return;   // brief loss: charge and armed state are preserved
       if(this.st === 'charge' && this.k > 0) this.onCharge(this.kind, 0);
       this._toNoHand();
       this.onState('Standby', 'live');
@@ -464,28 +495,33 @@ export class GestureInput {
     }
 
     this.seenT = this.clock;
-    this._palm(lm, dt, stall);                         // 掌心速度仍是「静止」的唯一裁判
-    const tip = this._tip(lm, dt, stall);              // 视口坐标，已镜像、已加增益、已夹到 [0,1]
+    this._palm(lm, dt, stall);                         // palm speed is still the only judge of "still"
+    const tip = this._tip(lm, dt, stall);              // viewport coordinates: mirrored, gained and clamped to [0,1]
     const cats = res?.gestures?.[0] ?? [];
     const S = n => cats.find(c => c.categoryName === n)?.score ?? 0;
     const atEdge = PALM_IDX.some(i => lm[i].x < EDGE || lm[i].x > 1 - EDGE || lm[i].y < EDGE || lm[i].y > 1 - EDGE);
 
-    // 几何判据（软分数）
+    // Geometric tests (soft scores)
     const asp = this.canvas.width / this.canvas.height;
     const { point:pointH, victory:victoryH } = poseScores(lm, asp);
 
-    // 原始武器分数：贴边门控；伸着食指的手不是拳头（几何判据确信时压掉 Closed_Fist，指着的手再像拳也不发动）
+    // Raw weapon scores: gated at the frame edge, and a hand with an extended index finger is not a
+    // fist (a confident geometric test suppresses Closed_Fist, so a pointing hand never fires however fist-like it reads)
     const fistS = atEdge || pointH > 0.5 || victoryH > 0.5 ? 0 : S('Closed_Fist'), palmS = atEdge ? 0 : S('Open_Palm');
-    // 分类用的分数：在动的手不下令（观察模式里这条已成立），但可以瞄准。
-    // 不门控的话，快速挥过去的侧向指向会被模糊帧判成 Closed_Fist，准星就断了。
+    // Scores used for classification: a moving hand issues no commands (already true in observe mode)
+    // but may still aim.
+    // Without this gate, a fast sideways point gets read as Closed_Fist on the motion-blurred frames
+    // and the crosshair drops out.
     const moving = this.vel >= V_PAUSE;
     const s = { fist: moving ? 0 : fistS, palm: moving ? 0 : palmS,
                 point: Math.max(S('Pointing_Up'), pointH), victory: Math.max(S('Victory'), victoryH) };
-    if(Math.max(s.fist, s.palm) >= ENTER_SCORE) s.point = s.victory = 0;   // 武器优先（此时必然静止且确信）
+    if(Math.max(s.fist, s.palm) >= ENTER_SCORE) s.point = s.victory = 0;   // weapons win (and at this point they are necessarily still and confident)
     this._classify(s);
 
-    // 武装：静止 300ms 就武装，不要求「手先放松」——生存模式里手一直在瞄准，停下来就握拳，
-    // 若还要先摆 300ms 中性手势，拳头就永远停在「冷却」。V_FAST 解除武装只影响武器；瞄准从不看 armed / lockUntil
+    // Arming: 300ms of stillness is enough, with no "relax first" requirement - in survival the hand
+    // is aiming the whole time and then closes into a fist directly, so demanding 300ms of a neutral
+    // pose first would leave the fist stuck on "Cooldown" forever.
+    // V_FAST disarming only affects weapons; aiming never looks at armed / lockUntil.
     const idle  = !atEdge;
     const still = this.vel < V_CHARGE;
     if(this.st === 'nohand'){ this.st = 'idle'; this.armed = false; this.idleT = this.clock; }
@@ -497,7 +533,7 @@ export class GestureInput {
     const label = LABEL[this.cls] ?? LABEL[this.kind] ?? '';
     switch(this.st){
       case 'idle': {
-        if(CLASS[this.cls]?.weapon && this.vel < V_PAUSE){   // 静止的武器姿势：与 _step 相同的三岔口
+        if(CLASS[this.cls]?.weapon && this.vel < V_PAUSE){   // a still weapon pose: the same three-way branch as _step
           this._aimOff();
           if(!this.armed) this.onState('Cooldown', 'live');
           else if(!this.canFire()) this.onState('Unavailable', 'live');
@@ -508,8 +544,10 @@ export class GestureInput {
           }
           break;
         }
-        // 瞄准。只在类别分数仍在退出线以上时发准星：掉进迟滞带那 120ms 发 null——
-        // 否则 ✌️ 在 0.35s 松开，迟滞会把它送到 0.45s，多出一块没人要的护盾（和蓄力 85% 松手是同一个坑）
+        // Aiming. Only emit a crosshair while the class score is still above the exit line; during
+        // the 120ms inside the hysteresis band, emit null - otherwise a V released at 0.35s would be
+        // carried to 0.45s by the hysteresis and drop a shield nobody asked for (the same trap as
+        // releasing a charge at 85%).
         if((this.cls === 'point' || this.cls === 'victory') && s[this.cls] >= EXIT_SCORE){
           this._aimOn(tip.x, tip.y, this.cls);
           this.onState(AIM_LABEL[this.cls], 'live');
@@ -519,22 +557,24 @@ export class GestureInput {
         }
         break;
       }
-      case 'grab': this.st = 'idle'; break;             // 切换模式的残留：生存模式里没有拨动
+      case 'grab': this.st = 'idle'; break;             // left over from a mode switch: survival has no spin
       case 'charge': this._aimOff(); this._stepCharge(s[this.kind] ?? 0, label); break;
       case 'fired':  this._aimOff(); this._stepFired(idle, label); break;
     }
   }
 
   _aimOn(x, y, pose){ this.aiming = true; this.onAim(x, y, pose); }
-  _aimOff(){ if(!this.aiming) return; this.aiming = false; this.onAim(null); }   // 去重：null 只发一次
+  _aimOff(){ if(!this.aiming) return; this.aiming = false; this.onAim(null); }   // deduplicated: null is emitted once
   _resetTip(){ this.tx.reset(); this.ty.reset(); }
   _tip(lm, dt, stall){
     if(stall) this._resetTip();
     const x = this.tx.filter(lm[8].x, dt), y = this.ty.filter(lm[8].y, dt);
-    return this._toView(1 - x, y);                    // 镜像：预览 scaleX(-1)，指向右边的手在原始坐标里在左边
+    return this._toView(1 - x, y);                    // mirror: the preview is scaleX(-1), so a hand pointing right sits left in raw coordinates
   }
-  /* 指尖 → 视口。画面是 4:3、视口任意；y 的增益按视口/画面宽高比补齐，手画的圆在屏上仍是圆。
-     视口可用 innerWidth/innerHeight：#stage 是 inset:0 的 fixed 画布，两者就是同一个矩形。 */
+  /* Fingertip -> viewport. The camera frame is 4:3 and the viewport is anything; the y gain is
+     corrected by (viewport / camera) aspect so a circle drawn by the hand stays a circle on screen.
+     innerWidth/innerHeight is the right viewport here: #stage is a fixed canvas at inset:0, so the
+     two are the same rectangle. */
   _toView(hx, hy){
     const vidAsp = (this.canvas.width || 4) / (this.canvas.height || 3);
     const gx = AIM_GAIN;
@@ -542,18 +582,22 @@ export class GestureInput {
     return { x:clamp01(0.5 + (hx - 0.5) * gx), y:clamp01(0.5 + (hy - 0.5) * gy) };
   }
 
-  // s：各类别的分数表（缺省为 0）。进入取最高且 ≥ ENTER；退出要连续 EXIT_MS 低于 EXIT。
+  // s: the per-class score table (missing entries are 0). Entering takes the highest score at or
+  // above ENTER; leaving requires EXIT_MS continuously below EXIT.
   _classify(s){
     if(this.cls){
       const cur = s[this.cls] ?? 0;
       if(cur >= EXIT_SCORE) this.exitMs = 0;
       else if((this.exitMs += this.dtMs) >= EXIT_MS) this._exitClass();
-      // 武器优先：瞄准姿势中冒出确信的武器，立即改判，不等 120ms。
-      // 调用方已按「静止」把武器分数门控过，所以到这里 ≥ ENTER 的武器一定是静止且确信的。
+      // Weapons win: a confident weapon appearing during an aiming pose reclassifies immediately,
+      // without waiting 120ms.
+      // The caller has already gated weapon scores on stillness, so any weapon reaching here at or
+      // above ENTER is necessarily both still and confident.
       if(this.cls && !CLASS[this.cls].weapon){
         const w = (s.fist ?? 0) >= (s.palm ?? 0) ? 'fist' : 'palm';
         if((s[w] ?? 0) >= ENTER_SCORE){ this.cls = w; this.exitMs = 0; }
-        // 指向 ↔ ✌️ 之间也不等 120ms：当前类已掉线、另一类确信，这不是坏帧，是换了姿势
+        // Pointing <-> V also skips the 120ms: the current class has dropped out and the other is
+        // confident, which is not a bad frame but a changed pose
         else if(cur < EXIT_SCORE){
           const o = this.cls === 'point' ? 'victory' : 'point';
           if((s[o] ?? 0) >= ENTER_SCORE){ this.cls = o; this.exitMs = 0; }
@@ -569,7 +613,7 @@ export class GestureInput {
   _exitClass(){
     const was = this.cls;
     this.cls = null; this.exitMs = 0;
-    if(CLASS[was]?.weapon) this.weaponEndT = this.clock;   // 只有武器结束才抑制起拨：过渡帧是它的
+    if(CLASS[was]?.weapon) this.weaponEndT = this.clock;   // only a weapon ending suppresses the start of a spin: the transition frames belong to it
   }
 
   _palm(lm, dt, stall){
@@ -577,7 +621,7 @@ export class GestureInput {
     if(stall) this._resetPalm();
     const seeded = this.fx.x === null;
     const x = this.fx.filter(c.x, dt), y = this.fy.filter(c.y, dt);
-    if(seeded){ this.p = { x, y }; this.vel = 0; this.vRaw = 0; return true; }   // 种子帧不吐位移
+    if(seeded){ this.p = { x, y }; this.vel = 0; this.vRaw = 0; return true; }   // the seeding frame emits no displacement
     this.vRaw = Math.hypot(x - this.p.x, y - this.p.y) / dt;
     this.vel = damp(this.vel, this.vRaw, VEL_TAU, dt);
     this.p = { x, y };
@@ -593,7 +637,8 @@ export class GestureInput {
     this.onState('Spinning', 'live');
   }
 
-  // 结束拨动、取消蓄力（该发的回调都发），回到 nohand。不动 armed 与锁。
+  // End any spin, cancel the charge (firing whatever callbacks are due) and return to nohand.
+  // Leaves armed and the locks alone.
   _abandon(){
     if(this.st === 'grab') this.onDrag('end');
     if(this.k > 0) this.onCharge(this.kind, 0);
@@ -609,18 +654,18 @@ export class GestureInput {
     this._aimOff();
   }
 
-  /* ── 双手：击掌 ── */
+  /* -- Two hands: the clap -- */
   _clap(hands, dt){
     this.onState('Clap for next specimen', 'live');
     if(this.clock - this.clapT < CLAP_COOL_MS){ this.clapPrev = null; this.closingN = 0; return; }
     if(hands.length < 2){
       const prev = this.clapPrev;
       this.clapPrev = null; this.closingN = 0;
-      // 刚快速合拢、然后少了一只手：合掌那一刻常会遮住另一只
+      // Just closed fast and then lost a hand: as they meet, one usually occludes the other
       if(prev && prev.closing && prev.d < CLAP_LOSS_D && this.clock - prev.t < CLAP_LOSS_MS && this._farRecent()) this._fireClap();
       return;
     }
-    const [a, b] = hands;                            // 顺序帧间任意：下面所有量都对称，不看左右手标签
+    const [a, b] = hands;                            // the order varies between frames: everything below is symmetric and never reads the handedness label
     const asp = this.canvas.width / this.canvas.height;
     const sa = handSize(a, asp), sb = handSize(b, asp);
     const sMin = Math.min(sa, sb), sMax = Math.max(sa, sb), s = (sa + sb) / 2;
@@ -630,7 +675,7 @@ export class GestureInput {
 
     const prev = this.clapPrev;
     const jump = prev && (Math.abs(sMin - prev.sMin) > 0.4 * prev.sMin || Math.abs(sMax - prev.sMax) > 0.4 * prev.sMax);
-    const vA = prev && !jump ? (prev.d - d) / dt : 0;   // 手长/秒，正 = 在合拢
+    const vA = prev && !jump ? (prev.d - d) / dt : 0;   // hand lengths per second, positive = closing
     const closing = vA >= CLAP_V;
     this.closingN = closing ? this.closingN + 1 : 0;
     this.clapPrev = { d, t:this.clock, closing, sMin, sMax };
