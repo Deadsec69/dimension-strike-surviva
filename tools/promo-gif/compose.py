@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""后期合成：把画布帧叠上页面上本来就有、但画布采集拿不到的那几层。
+"""Compositing: overlay the layers the page already has but a canvas capture cannot see.
 
-  暗角     #vignette 的径向渐变
-  闪光     #flash，挂在断裂那一帧（events.shock）
-  判词     .verdict，挂在效果结束那一帧（events.end）
-  通讯     .log li.is-new 的琥珀色——文明的声音
-  读数     .ctl-val 的冷蓝——观测者的手
-  触点     拨动那段的手指位置（ptr）
+  vignette   the radial gradient of #vignette
+  flash      #flash, hung on the frame it fractures (events.shock)
+  verdict    .verdict, hung on the frame the effect ends (events.end)
+  comms      the amber of .log li.is-new - the civilization's voice
+  readout    the cold blue of .ctl-val - the observer's hand
+  touch      the finger position during the spin clip (ptr)
 
-字号按手机阅读放大：960 宽的画布在公众号里约缩到 0.39 倍，站点原来 20px 的判词
-到手机上只剩 8px。
+Type is scaled up for reading on a phone: a 960-wide canvas ends up around 0.39x in a feed, and the
+site's 20px verdict would be 8px there.
 
-依赖 Pillow 与 numpy。字体默认取 Windows 的微软雅黑与 Consolas，别的系统用
-PROMO_FONT_CJK / PROMO_FONT_CJK_BOLD / PROMO_FONT_MONO 指过去。
+Depends on Pillow and numpy. The fonts default to the Windows Segoe UI and Consolas; point
+PROMO_FONT_UI / PROMO_FONT_UI_BOLD / PROMO_FONT_MONO elsewhere on other systems.
 
-用法：python tools/promo-gif/compose.py [clip ...]    不给就全做
+Usage: python tools/promo-gif/compose.py [clip ...]   with no arguments it does all of them
 """
 import json, os, sys
 import numpy as np
@@ -28,23 +28,24 @@ W, H = 960, 540
 FPS = 24
 
 WINF = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts')
-YAHEI = os.environ.get('PROMO_FONT_CJK', os.path.join(WINF, 'msyh.ttc'))
-YAHEI_B = os.environ.get('PROMO_FONT_CJK_BOLD', os.path.join(WINF, 'msyhbd.ttc'))
+UI = os.environ.get('PROMO_FONT_UI', os.path.join(WINF, 'segoeui.ttf'))
+UI_B = os.environ.get('PROMO_FONT_UI_BOLD', os.path.join(WINF, 'segoeuib.ttf'))
 MONO = os.environ.get('PROMO_FONT_MONO', os.path.join(WINF, 'consola.ttf'))
 
-# 与 css/style.css 的 :root 一致
+# Matches the :root block in css/style.css
 INK = (213, 222, 230)
 INK2 = (140, 155, 168)
 INK3 = (90, 103, 115)
 COLD = (111, 168, 214)
 AMBER = (232, 176, 75)
-TAG = (92, 136, 172)     # --cold-dim 在 GIF 里太暗，提亮一档
+TAG = (92, 136, 172)     # --cold-dim is too dark once it is a GIF, so it is lifted a stop
 
-# 各段挑哪几条通讯。全放的话升温那段 6 秒里要闪过 7 条，一条都读不完。
+# Which comms lines each clip uses. Showing all of them would flash seven lines through the six
+# seconds of the heating clip and none of them could be read.
 PICK = {
-    'd_heat': ['行星均温上升', '海洋表层沸腾', '地表已无液态水'],
-    'e_cold': ['冰盖越过北纬', '海洋封冻', '信号收束'],
-    'f_spin': ['恒星日长度', '天空正以', '昼夜节律'],
+    'd_heat': ['Mean temperature up', 'Ocean surface boiling', 'No liquid water left'],
+    'e_cold': ['Ice sheets pass', 'Oceans frozen over', 'The signal collapses'],
+    'f_spin': ['Unexplained drift', 'The sky is moving', 'Circadian rhythms'],
 }
 
 _fonts = {}
@@ -54,7 +55,7 @@ def font(path, size):
         try:
             _fonts[k] = ImageFont.truetype(path, size)
         except OSError:
-            sys.exit(f'找不到字体 {path}——用 PROMO_FONT_* 环境变量指定')
+            sys.exit(f'font not found: {path} - point PROMO_FONT_* at one that exists')
     return _fonts[k]
 
 
@@ -63,7 +64,7 @@ def clamp01(x):
 
 
 def cubic_bezier(x1, y1, x2, y2):
-    """CSS 的 cubic-bezier 缓动：给进度 x 求 y。"""
+    """CSS cubic-bezier easing: given progress x, solve for y."""
     def bz(t, a, b):
         return 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3
     def f(x):
@@ -80,11 +81,11 @@ EASE = cubic_bezier(0.25, 0.1, 0.25, 1.0)
 EASE_OUT = cubic_bezier(0.0, 0.0, 0.58, 1.0)
 
 
-# ── 文字：中西文分 run 排，mono 只管 ASCII ──
-def runs(text, cjk_font, mono_font):
+# -- Text: laid out in runs so a mono font can cover ASCII while another covers the rest --
+def runs(text, ui_font, mono_font):
     out, cur, cur_f = [], '', None
     for ch in text:
-        f = mono_font if (mono_font and ord(ch) < 128) else cjk_font
+        f = mono_font if (mono_font and ord(ch) < 128) else ui_font
         if f is not cur_f and cur:
             out.append((cur, cur_f)); cur = ''
         cur_f = f; cur += ch
@@ -98,7 +99,7 @@ def text_width(text, f, spacing=0.0, mono=None):
 
 
 def draw_text(d, xy, text, f, fill, spacing=0.0, mono=None):
-    """逐字排，才能做出 letter-spacing。"""
+    """Laid out character by character, which is the only way to get letter-spacing."""
     x, y = xy
     for s, ff in runs(text, f, mono):
         for ch in s:
@@ -108,7 +109,7 @@ def draw_text(d, xy, text, f, fill, spacing=0.0, mono=None):
 
 
 def shadowed(paint, blur=10):
-    """先画一层文字形状，模糊后当投影，再把文字盖上去——对应 CSS 的 text-shadow。"""
+    """Draw the glyph shapes once, blur them into a shadow, then draw the text on top - the equivalent of CSS text-shadow."""
     layer = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     paint(ImageDraw.Draw(layer))
     a = layer.getchannel('A').filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, int(v * 2.0)))
@@ -131,48 +132,48 @@ def rgba(alpha, color=(0, 0, 0)):
     return Image.fromarray(out, 'RGBA')
 
 
-# ── 静态层 ──
+# -- Static layers --
 def radial(stops, rx, ry, color):
-    """CSS radial-gradient(ellipse rx ry at 50% 50%, ...) 的 alpha 场。"""
+    """The alpha field of CSS radial-gradient(ellipse rx ry at 50% 50%, ...)."""
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
     t = np.sqrt(((xs + 0.5 - W / 2) / rx) ** 2 + ((ys + 0.5 - H / 2) / ry) ** 2)
     return rgba(np.interp(t, [p for p, _ in stops], [v for _, v in stops]), color)
 
 VIGNETTE = radial([(0.30, 0.0), (1.0, 0.55)], 1.2 * W, 0.9 * H, (0, 0, 0))
-# 判词的压暗：原样是 58%×34%，字号放大后框也跟着放宽
+# Darkening behind the verdict: 58%x34% originally, widened along with the larger type
 VERDICT_BG = radial([(0.18, 0.90), (0.55, 0.55), (0.78, 0.0)], 0.66 * W, 0.40 * H, (3, 5, 8))
-# 底部字幕的托底：只压下缘一条，读起来还是暗角的一部分
+# A base behind the bottom subtitles: only the lower edge is darkened, so it still reads as part of the vignette
 SCRIM = rgba(np.broadcast_to((np.clip((np.arange(H) - (H - 150)) / 150, 0, 1) ** 1.6 * 0.62)[:, None], (H, W)))
 
 
-# ── 各层 ──
+# -- The layers --
 def layer_brand():
     def paint(d):
-        draw_text(d, (40, 30), '降维打击模拟器', font(YAHEI_B, 30), INK, spacing=30 * 0.14)
-        draw_text(d, (41, 76), 'DIMENSIONAL STRIKE · 高维观测者控制台', font(YAHEI, 14), INK2,
+        draw_text(d, (40, 30), 'Dimensional Strike', font(UI_B, 30), INK, spacing=30 * 0.14)
+        draw_text(d, (41, 76), 'SIMULATOR · HIGH-DIMENSIONAL OBSERVER CONSOLE', font(UI, 14), INK2,
                   spacing=14 * 0.2, mono=font(MONO, 14))
-        # 贴图是 CC BY 4.0，署名跟着图走
-        credit = '地表影像 Solar System Scope · CC BY 4.0'
-        cw = text_width(credit, font(YAHEI, 12), 0.6, font(MONO, 12))
-        draw_text(d, (W - 40 - cw, H - 24), credit, font(YAHEI, 12), INK3, spacing=0.6, mono=font(MONO, 12))
+        # The textures are CC BY 4.0, and the attribution travels with the image
+        credit = 'Surface imagery Solar System Scope · CC BY 4.0'
+        cw = text_width(credit, font(UI, 12), 0.6, font(MONO, 12))
+        draw_text(d, (W - 40 - cw, H - 24), credit, font(UI, 12), INK3, spacing=0.6, mono=font(MONO, 12))
     return shadowed(paint, blur=12)
 
 
 def layer_command(label, tag):
-    """观测者下的指令：冷蓝，左上角。"""
+    """A command from the observer: cold blue, top left."""
     def paint(d):
         draw_text(d, (40, 31), tag, font(MONO, 15), TAG, spacing=15 * 0.12)
         d.rectangle([40, 58, 42, 96], fill=COLD)
-        draw_text(d, (54, 58), label, font(YAHEI_B, 28), COLD, spacing=28 * 0.12)
+        draw_text(d, (54, 58), label, font(UI_B, 28), COLD, spacing=28 * 0.12)
     return shadowed(paint)
 
 
 def layer_readout(temp_k):
-    """表面均温读数 + 一条迷你滑轨（90..900K，288 处标宜居），对应站点左侧面板。"""
+    """The mean surface temperature readout plus a mini slider (90..900K, habitable marked at 288), mirroring the site's left panel."""
     x0, x1, y = 40, 250, 116
     tx = x0 + (temp_k - 90) / 810 * (x1 - x0)
     def paint(d):
-        draw_text(d, (40, 32), '表面均温', font(YAHEI, 17), INK2, spacing=17 * 0.06)
+        draw_text(d, (40, 32), 'Mean surface temperature', font(UI, 17), INK2, spacing=17 * 0.06)
         x = draw_text(d, (40, 56), f'{temp_k:d}', font(MONO, 38), COLD)
         d.text((x + 6, 72), 'K', font=font(MONO, 17), fill=INK3)
         d.rectangle([x0, y, x1, y + 1], fill=(62, 80, 96))
@@ -185,19 +186,19 @@ def layer_readout(temp_k):
 
 
 def layer_log(year, text):
-    """一条通讯记录：mono 时间戳 + 琥珀正文 + 左侧竖线。"""
+    """One comms entry: a mono timestamp, amber body text, and a rule down the left."""
     y0 = H - 92
     def paint(d):
         d.rectangle([40, y0, 41, y0 + 66], fill=AMBER)
-        draw_text(d, (56, y0 - 1), f'T+{year:04d} 标准年 · 1420 MHz', font(YAHEI, 14), INK2,
+        draw_text(d, (56, y0 - 1), f'T+{year:04d} STD YR · 1420 MHz', font(UI, 14), INK2,
                   spacing=14 * 0.08, mono=font(MONO, 15))
-        draw_text(d, (56, y0 + 24), text, font(YAHEI, 27), AMBER, spacing=27 * 0.04)
+        draw_text(d, (56, y0 + 24), text, font(UI, 27), AMBER, spacing=27 * 0.04)
     return shadowed(paint, blur=9)
 
 
 def layer_verdict(text):
     lines = text.split('\n')
-    f, sp, lh = font(YAHEI, 32), 32 * 0.1, 32 * 2.0
+    f, sp, lh = font(UI, 32), 32 * 0.1, 32 * 2.0
     top = H / 2 - lh * len(lines) / 2
     def paint(d):
         for i, ln in enumerate(lines):
@@ -207,7 +208,7 @@ def layer_verdict(text):
 
 
 def layer_pointer(x, y, k, press):
-    """触点：按下时从大收到小，松手时原地淡出。"""
+    """The touch point: contracts from large on press, and fades in place on release."""
     img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     r = 19 + 10 * (1 - press)
@@ -219,14 +220,14 @@ def layer_pointer(x, y, k, press):
 
 
 def flash_alpha(t):
-    """#flash 的关键帧：0 → .88（8%）→ 0，全程 520ms，整体 ease-out。"""
+    """#flash's keyframes: 0 -> .88 (at 8%) -> 0 over 520ms, eased out overall."""
     if t < 0 or t > 0.52: return 0.0
     e = EASE_OUT(t / 0.52)
     return 0.88 * (e / 0.08) if e < 0.08 else 0.88 * (1 - (e - 0.08) / 0.92)
 
 
 def log_track(entries, total, fade=6):
-    """[(起始帧, 年, 文本)] → 每帧显示哪几条、各多少不透明度。新的一条淡入，旧的同步淡出。"""
+    """[(start frame, year, text)] -> which entries each frame shows and at what opacity. A new entry fades in as the old one fades out."""
     track = [[] for _ in range(total)]
     for n, (f0, year, text) in enumerate(entries):
         f1 = entries[n + 1][0] if n + 1 < len(entries) else total + fade
@@ -239,7 +240,7 @@ def log_track(entries, total, fade=6):
 
 def build(clip, m):
     n, ev = m['frames'], m['events']
-    per = [[] for _ in range(n)]           # 每帧的叠加层：(图, 不透明度)
+    per = [[] for _ in range(n)]           # per-frame overlays: (image, opacity)
     white = [0.0] * n
     logs = []
 
@@ -247,23 +248,23 @@ def build(clip, m):
         brand = layer_brand()
         for f in range(n):
             per[f].append((brand, 1.0))
-        # 第一声问候。采集时它落在第 0 帧，晚一点出来，先让人看清这颗星
-        logs = [(18, 0, l['text']) for l in m['log'] if l['text'].startswith('检测到窄带信号')][:1]
+        # The opening greeting. During capture it lands on frame 0; delay it a little so the planet registers first
+        logs = [(18, 0, l['text']) for l in m['log'] if l['text'].startswith('Narrowband signal detected')][:1]
 
     elif clip in ('b_foil', 'c_crush'):
         foil = clip == 'b_foil'
-        cmd = layer_command('二向箔投放' if foil else '引力挤压',
+        cmd = layer_command('Dual-Vector Foil' if foil else 'Gravity Crush',
                             'OBSERVER · FOIL' if foil else 'OBSERVER · CRUSH')
         verdict = layer_verdict(m['verdict'])
         t0, end = ev['trigger'], ev['end']
         for f in range(n):
-            # 第 0 帧就挂着：静止时它就是这张图的标题，发动那一下再点亮
+            # Present from frame 0: while nothing is moving it is this image's title, and it lights up as the strike fires
             a = (0.5 + 0.5 * clamp01((f - t0 + 1) / 5)) * (1 - clamp01((f - end) / 12))
             if a > 0: per[f].append((cmd, a))
-            v = EASE(clamp01((f - end) / (1.6 * FPS)))    # .verdict 的 transition:1.6s ease
+            v = EASE(clamp01((f - end) / (1.6 * FPS)))    # .verdict's transition: 1.6s ease
             if v > 0: per[f].append((verdict, v))
             if 'shock' in ev:
-                # 断裂发生在这一帧的推进之中，取半帧作为已过去的时间
+                # The fracture happens partway through this frame's step, so half a frame is taken as elapsed
                 white[f] = flash_alpha((f - ev['shock'] + 0.5) / FPS)
 
     elif clip in ('d_heat', 'e_cold'):
@@ -274,7 +275,7 @@ def build(clip, m):
             per[f].append((cache[k], 1.0))
 
     elif clip == 'f_spin':
-        cmd = layer_command('抓住，拨动自转', 'OBSERVER · DRAG')
+        cmd = layer_command('Grab it and spin', 'OBSERVER · DRAG')
         down = up = last = None
         for f, p in enumerate(m['ptr']):
             per[f].append((cmd, 1.0))
@@ -309,12 +310,13 @@ def build(clip, m):
         if logs: im = Image.alpha_composite(im, SCRIM)
         for layer, a in per[f]:
             im = Image.alpha_composite(im, with_alpha(layer, a))
-        # 只淡出不淡入：公众号在加载中、省电模式下只显示第一帧，黑的第一帧像是坏图。
-        # 循环点于是成了「暗下去，切回开头」。
+        # Fade out but never in: while loading, and in power saving mode, only the first frame is shown,
+        # and a black first frame looks like a broken image. The loop point becomes "go dark, cut back
+        # to the start".
         k = clamp01((n - f) / 10)
         if k < 1: im = Image.blend(black, im, k)
         im.convert('RGB').save(os.path.join(d, f'{f:04d}.png'), compress_level=1)
-    print(clip, n, '帧')
+    print(clip, n, 'frames')
 
 
 if __name__ == '__main__':
