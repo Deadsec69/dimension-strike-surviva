@@ -1,68 +1,83 @@
-# 降维打击模拟器 · Dimensional Strike
+# Dimensional Strike
 
-> 界面已全部改为英文（面板、手势状态、文明通讯、结算卡）；本文档与源码注释仍是中文。
-> 摄像头面板右上角的 – / + 可收起 / 展开预览；右面板会按它的高度让位，榜单始终在上面。
-> 榜右上的 CLEAR 按两下（第二下在 4 秒内）清榜，画像文件一并删除。点榜标题或任一行打开全榜弹窗，
-> 里面可以 Export CSV。榜上每个代号只留最好的一局（Runs 列是打过几局），所有局都还在 `runs/leaderboard.json`。
-> 代号唯一：榜上已有的名字不能再开局（提示 Callsign taken），只有这台浏览器上一局用过的那个除外——那是你自己。
-> 生存模式里握拳 / 摊掌：停住即武装（300ms），再握住 0.8s 发动——不必先摆中性手势。
+> The camera panel's – / + collapses and expands the preview; the right panel yields to its height,
+> so the board is always above it.
+> CLEAR at the top right of the board clears it in two clicks (the second within 4 seconds), deleting
+> the portrait files with it. Clicking the board title or any row opens the full-board modal, which
+> has Export CSV. The board keeps only each callsign's best run (the Runs column is how many they
+> have played); every run is still in `runs/leaderboard.json`.
+> Callsigns are unique: a name already on the board can't start a run (it shows Callsign taken), with
+> the sole exception of the one this browser last played under - that's you.
+> Fist / open palm in survival mode: holding still arms it (300ms), and holding the pose for another
+> 0.8s fires - no neutral gesture needed first.
 
-扮演高维文明，操控一颗行星的温度与气压，观察其上文明的兴衰；或投放二向箔把它压成二维，
-或用引力把它挤碎。**行星可以像地球仪一样抓住转动**——横向拨自转、纵向扳倾角，松手后带惯性
-滑行。支持摄像头手势输入：**握拳并稳住 = 引力挤压，摊开手掌并稳住 = 二向箔投放**；
-判词出现后**双手击掌**换下一个样本。摄像头开着时还有**生存模式**：陨石越来越密地砸向
-行星，竖起食指停住射击、✌️ 停住布下护盾，每次撞击升温、每块护盾加压，看你能守多久。
+Play a higher-dimensional civilization: control a planet's temperature and pressure and watch the
+civilization on it rise and fall, or drop a dual-vector foil to flatten it into two dimensions, or
+crush it with gravity. **The planet can be grabbed and turned like a globe** - drag horizontally to
+spin it, vertically to tip it, and it coasts on inertia after you let go. Camera gesture input is
+supported: **hold a fist still = gravity crush, hold an open palm still = dual-vector foil**; once
+the verdict appears, **clap both hands** for the next specimen. With the camera on there is also
+**survival mode**: asteroids fall on the planet ever more densely, you point your index finger to
+shoot and hold a ✌️ to place shields, every impact raises the temperature and every shield raises
+the pressure - see how long you can hold it.
 
-纯静态站点，无构建步骤。Three.js 自研 shader + MediaPipe 手势识别。
+A purely static site with no build step. Three.js with hand-written shaders, plus MediaPipe gesture
+recognition.
 
-美术方向是**照片级写实**：NASA 底图作基底，温度/气压的效果以程序化图层叠加其上——
-冰盖、荒漠化、海洋蒸干、熔融裂缝各自是一层遮罩。贴图保证质感，程序化图层保证滑块
-仍然有效。地表影像来自 [Solar System Scope](https://www.solarsystemscope.com/textures/)，
-授权 CC BY 4.0，页面内已署名。
+The art direction is **photoreal**: a NASA base map underneath, with the effects of temperature and
+pressure layered on procedurally - ice caps, desertification, oceans boiling dry and molten fissures,
+each its own mask. The textures carry the material quality; the procedural layers keep the sliders
+meaningful. Surface imagery from [Solar System Scope](https://www.solarsystemscope.com/textures/),
+licensed CC BY 4.0 and credited in the page.
 
-## 快速开始
+## Quick start
 
 ```bash
 bash fetch-assets.sh && python serve.py 8123
 ```
 
-打开 http://localhost:8123 。`localhost` 属于安全上下文，摄像头可用。
+Open http://localhost:8123 . `localhost` counts as a secure context, so the camera works.
 
-本仓库已把二进制产物一并入库（`models/`、`vendor/wasm/`、`textures/`），克隆即可运行，
-`fetch-assets.sh` 可跳过。它拉的是这些产物（合计约 20MB）：MediaPipe 的 WASM
-运行时和手势识别模型。脚本幂等，已存在就跳过。**不跑它页面也能开**——星球、滑块、
-两种打击效果全部可用，只有摄像头手势会报「不可用」。
+This repo commits the binary artifacts (`models/`, `vendor/wasm/`, `textures/`), so a clone runs as
+is and `fetch-assets.sh` can be skipped. What it fetches (about 20MB in total) is those artifacts:
+the MediaPipe WASM runtime and the gesture recognition model. The script is idempotent and skips
+anything already present. **The page opens without it** - the planet, the sliders and both strike
+effects all work; only the camera gestures report "Unavailable".
 
-## 线上地址
+## Live
 
 **https://mr-salticidae.github.io/dimension-strike/**
 
-GitHub Pages，`gh-pages` 分支根目录，强制 HTTPS（摄像头可用）。更新站点：
+GitHub Pages, the root of the `gh-pages` branch, with HTTPS enforced (so the camera works). To update
+the site:
 
 ```bash
 bash fetch-assets.sh && bash deploy.sh
 ```
 
-`deploy.sh` 把当前目录连同二进制产物一并推到 `gh-pages`——那些文件在 main 里被
-`.gitignore` 排除，而 Pages 没有构建步骤可以跑 `fetch-assets.sh`，只能由部署分支带着。
+`deploy.sh` pushes the current directory along with the binary artifacts to `gh-pages` - those files
+used to be excluded from main by `.gitignore`, and Pages has no build step that could run
+`fetch-assets.sh`, so the deploy branch has to carry them.
 
-Pages 自己就把下面第 1、3 条办妥了：`.js`/`.mjs` 回 `text/javascript`、`.wasm` 回
-`application/wasm`，gzip 默认开着（9.5MB 的 WASM 实际传 2.9MB）。唯一办不到的是自定义
-响应头，所以 COOP/COEP 那对跨源隔离头没有，MediaPipe 会走 XNNPACK 而非 GPU delegate ——
-手势识别照常工作，只是吃 CPU。
+Pages handles points 1 and 3 below by itself: `.js`/`.mjs` come back as `text/javascript`, `.wasm` as
+`application/wasm`, and gzip is on by default (the 9.5MB WASM transfers as 2.9MB). The one thing it
+cannot do is custom response headers, so the COOP/COEP cross-origin isolation pair is missing and
+MediaPipe falls back to XNNPACK rather than the GPU delegate - gesture recognition still works, it
+just runs on the CPU.
 
-## 部署（其他环境）
+## Deploying elsewhere
 
-拷贝整个目录到任意 Web 服务器即可，但有三件事必须确认：
+Copy the whole directory to any web server. Three things have to be right:
 
-**1. 必须 HTTPS。** `getUserMedia` 只在安全上下文下可用。纯 HTTP 域名下页面照常渲染、
-滑块和按钮都能用，但摄像头会被浏览器直接拒绝（页面会显示「需 HTTPS」）。
+**1. HTTPS is required.** `getUserMedia` only works in a secure context. Over plain HTTP the page
+still renders and the sliders and buttons work, but the browser refuses the camera outright (the page
+shows "HTTPS required").
 
-**2. 二进制依赖已在仓库里。** `models/*.task`、`vendor/wasm/`、`textures/` 随仓库一起，
-缺了就跑一次 `bash fetch-assets.sh`（幂等）。
+**2. The binary dependencies are in the repo.** `models/*.task`, `vendor/wasm/` and `textures/` come
+with it; if any are missing, run `bash fetch-assets.sh` once (it is idempotent).
 
-**3. MIME 类型要配对。** `.mjs` 和 `.wasm` 如果回错类型，ES module 导入和 WASM 实例化
-都会静默失败。nginx 参考配置：
+**3. MIME types have to be right.** If `.mjs` and `.wasm` come back with the wrong type, ES module
+imports and WASM instantiation both fail silently. An nginx reference config:
 
 ```nginx
 types {
@@ -73,452 +88,626 @@ types {
 gzip on;
 gzip_types text/javascript application/wasm application/json text/css;
 gzip_min_length 1024;
-# .task 本身是 zip 包，再压无益
+# .task is itself a zip, so compressing it again gains nothing
 gzip_proxied any;
 
-# 可选：为 MediaPipe 的 GPU delegate 开启跨源隔离
+# Optional: cross-origin isolation for MediaPipe's GPU delegate
 add_header Cross-Origin-Opener-Policy   same-origin;
 add_header Cross-Origin-Embedder-Policy credentialless;
 ```
 
-## 体积
+## Size
 
-| 阶段 | 传输量 | 说明 |
+| Stage | Transferred | Notes |
 |---|---|---|
-| 首屏 | **1.3 MB** | Three.js + 页面代码，星球立即可玩 |
-| 点「开启摄像头」后 | +19 MB | MediaPipe 运行时 9.5MB + 模型 8.4MB |
+| First paint | **1.3 MB** | Three.js plus the page code; the planet is playable immediately |
+| After "Turn on camera" | +19 MB | 9.5MB MediaPipe runtime plus an 8.4MB model |
 
-手势模块走动态 `import()`，不开摄像头的访客永远不会下载这 19MB。
-WASM 经 gzip 约 3MB，务必开压缩。
+The gesture module goes through a dynamic `import()`, so visitors who never turn the camera on never
+download those 19MB. The WASM is about 3MB gzipped - make sure compression is on.
 
-## 代码结构
+## Code layout
 
 ```
-index.html          HUD 结构
-css/style.css       控制台样式。颜色叙事：琥珀=文明，冷蓝=观测者
-js/planet.js        Three.js 场景与全部 shader（行星/大气/云层/二向箔/内核）
-js/civ.js           文明状态演化与通讯记录
-js/gesture.js       MediaPipe GestureRecognizer 封装：识别状态机、蓄力、击掌、生存模式的准星
-js/survival.js      生存模式：陨石、护盾、光束、停留瞄准、温度/气压模型（按需动态加载）
-js/board.js         生存结算：抓拍、上报、画像与观测者榜（服务器不在时降级）
-js/main.js          装配与主循环
-vendor/             Three.js（入 git）、MediaPipe 运行时（fetch-assets.sh 拉取）
-models/             手势模型（fetch-assets.sh 拉取）
-serve.py            开发服务器。补了 .mjs / .wasm 的 MIME；另有 /api/finish 等结算接口（见「生存结算」）
-runs/               生成的观测者画像与 leaderboard.json（本仓库一并入库）
-.env.example        GEMINI_API_KEY 的模板；复制为 .env（不入 git）
-tools/promo-gif/    公众号宣传 GIF：逐帧采集 → 叠 HUD 层 → 编码（见其 README，不随站点部署）
+index.html          HUD structure
+css/style.css       console styling. Color narrative: amber = the civilization, cold blue = the observer
+js/planet.js        the Three.js scene and every shader (planet / atmosphere / clouds / foil / core)
+js/civ.js           the civilization's state evolution and comms log
+js/gesture.js       MediaPipe GestureRecognizer wrapper: recognition state machine, charging, clap, the survival crosshair
+js/survival.js      survival mode: asteroids, shields, beams, dwell aiming, the temperature/pressure model (loaded on demand)
+js/board.js         survival scoring: snapshot, submission, portrait and the observer board (degrades when there is no server)
+js/main.js          wiring and the main loop
+vendor/             Three.js (committed), the MediaPipe runtime (fetched by fetch-assets.sh)
+models/             the gesture model (fetched by fetch-assets.sh)
+serve.py            development server. Fills in the .mjs / .wasm MIME types, and serves /api/finish and friends (see "Survival scoring")
+runs/               generated observer portraits and leaderboard.json (committed in this repo)
+.env.example        template for GEMINI_API_KEY; copy to .env (not committed)
+tools/promo-gif/    promo GIFs: frame-by-frame capture -> HUD overlays -> encode (see its own README; not deployed with the site)
 ```
 
-## 实现要点
+## Implementation notes
 
-几个踩过的坑，改动前先读：
+A few traps already fallen into. Read these before changing things.
 
-**滑块不跟手是故意的。** 温度滑到 150K，冰盖要十几秒才铺满——`ENV_TAU` 给冰盖、海洋、
-植被、岩石、云、大气各配了一条时间常数，滑块给的只是目标值。逼近用 `1-exp(-dt/τ)`
-而不是定比 lerp，后者是「每帧走剩余的 10%」，144Hz 上会抖、30Hz 上会黏。零延迟的
-跟手感比任何贴图问题都更快地暴露出它不是模拟，别把这层延迟当 bug 修掉。
+**The sliders lagging your hand is deliberate.** Drag the temperature to 150K and the ice cap takes
+a dozen seconds to spread - `ENV_TAU` gives the ice, oceans, vegetation, rock, clouds and atmosphere
+each their own time constant, and the slider only sets a target. The approach uses `1-exp(-dt/tau)`
+rather than a fixed-ratio lerp; the latter means "cover 10% of the remainder each frame", which
+jitters at 144Hz and feels sticky at 30Hz. Zero-latency response gives away faster than any texture
+problem that this is not a simulation, so don't fix that lag as if it were a bug.
 
-**碎裂是冲量加积分，不是位置插值。** 位移若由 `smoothstep(进度)` 驱动，导数在两端归零，
-一地碎片会同时起步、同时刹停。现在每片有自己的断裂时刻，断裂后速度阶跃、真空中不再
-衰减，只被残核引力的二次项削减——慢的落回，快的一去不返。碎片在动画「结束」那一帧也
-不会停：`done` 状态继续积分到 1.8。
+**Shattering is impulse and integration, not interpolated positions.** If the displacement is driven
+by `smoothstep(progress)`, the derivative goes to zero at both ends and a whole field of fragments
+starts and stops together. Now each piece has its own fracture time, steps its velocity when it
+breaks, and in vacuum no longer decays - only reduced by the quadratic term of the remnant core's
+gravity, so slow ones fall back and fast ones never return. The fragments don't stop on the frame the
+animation "ends" either: the `done` state keeps integrating to 1.8.
 
-**只改反照率的效果，一定读成贴纸。** 温度那几段最初全是 `base = mix(base, 颜色, 遮罩)`，
-然后共用同一套光照——冰、沙、岩浆在光下是同一种东西，所以无论配色多准，看着都像在球面上
-盖了一层图。让「整颗星在变」成立要四件事，缺一件都会露馅：
+**Any effect that only changes albedo reads as a sticker.** The temperature sections were all
+`base = mix(base, color, mask)` at first, sharing one lighting model - ice, sand and magma being the
+same substance under the light, so however accurate the palette, it looked like an image pasted onto
+a sphere. Making "the whole planet is changing" work takes four things, and missing any one of them
+gives it away:
 
-1. **法线要变。** 基础地形直接对底图取梯度（那是真实影像，山脉走向本来就在里面，
-   拿噪声铺满大陆只会变成砂纸）；程序化起伏只在材质真的换掉之后才出场——雪脊粗而缓、
-   沙丘与熔岩坡细而密。明暗交界处长出坡面，材质才立得住。
-2. **材质对光的反应要变。** 水是极窄的镜面点；冰的镜面瓣宽得多，而且**阴影是蓝的**
-   （冰体内多次散射把红端吃掉），还会向四周散光；沙有冲日效应，视线与光线接近时回散最强。
-3. **要有不分昼夜的项。** 热辐射约 645K 起可见暗红。它对日面夜面一视同仁，所以温度一高，
-   **整个夜半球都会烧起来**，而不是只有裂缝在亮——这是「整颗星」和「一层」最直接的分界。
-4. **大气要知道地表在干什么。** 密度不能只听气压：地表干了起沙尘、海干了腾蒸汽、冻透了
-   气体冻析到地面、烧起来加载气溶胶。少了这条耦合，地表怎么变，边上那圈光晕都纹丝不动。
-   注意沙尘要在荒漠温区达峰、熔融之前退掉——线性外推到八百度还满值，会把整层大气顶成
-   橙色泛光，反而把地表糊掉。
+1. **The normal has to change.** Base terrain takes its gradient straight from the base map (that is
+   real imagery, the mountain ranges are already in it, and covering a continent in noise just makes
+   sandpaper); procedural relief only appears once the material has genuinely changed - snow ridges
+   coarse and gentle, dunes and lava slopes fine and dense. Slopes growing out of the terminator are
+   what make a material hold up.
+2. **How the material responds to light has to change.** Water is a very tight specular point; ice
+   has a much wider lobe and **blue shadows** (multiple scattering inside the ice eats the red end)
+   and scatters light sideways as well; sand has an opposition effect, backscattering most strongly
+   when the view and light directions nearly coincide.
+3. **There has to be a term that ignores day and night.** Thermal radiation is visible as dark red
+   from about 645K. It treats the lit and unlit hemispheres alike, so once it is hot enough **the
+   entire night side burns** rather than just the fissures - the most direct line between "the whole
+   planet" and "one layer".
+4. **The atmosphere has to know what the surface is doing.** Density can't listen to pressure alone:
+   a dry surface raises dust, a boiling sea raises steam, a frozen one has its gases condense onto the
+   ground, and a burning one loads aerosols. Without that coupling the halo at the limb never moves,
+   whatever the surface does. Note that dust has to peak in the desert temperature band and retreat
+   before melting - extrapolated linearly it would still be at full strength at eight hundred degrees,
+   pushing the whole atmosphere into an orange glow that smears the surface away.
 
-**云的纬向平流：偏移必须按带取常数。** 云层原本是整张贴图按固定速率平移——刚体。改成
-纬向风带（信风带 0~30° 吹东风、西风带 30~60° 反向、极地东风又转向西）时踩了两次坑，
-第二次比第一次更难看，值得都记下来：
+**Zonal cloud advection: the offset must be constant per band.** The cloud layer used to be one
+texture translating at a fixed rate - a rigid body. Converting it to zonal wind bands (trades 0-30
+degrees blowing east to west, westerlies 30-60 reversing, polar easterlies turning west again) went
+wrong twice, and the second attempt looked worse than the first. Both are worth recording:
 
-*第一次*：让 UV 偏移随纬度**连续变化**并无界累积。相邻纬度的采样点被越拉越远，采样器看到
-的导数爆掉，自动 mip 直接选到几十像素宽的那一级，整片云糊成灰——看起来像云消失了。
+*First attempt*: let the UV offset **vary continuously** with latitude and accumulate without bound.
+Neighbouring latitudes' sample points get dragged further and further apart, the derivatives the
+sampler sees explode, automatic mip selection jumps to a level tens of pixels wide, and the whole deck
+smears to grey - it looks like the clouds disappeared.
 
-*第二次*（错误的妥协）：改成**缓慢往复的剪切 + 原地演化的形变场**。往复让云来回滑，形变场
-让云团在原地扭——那不是在走，那是程序化形变，一眼就能认出来。**云的主运动是平移**，
-牺牲平移去换别的东西都是错的。
+*Second attempt* (the wrong compromise): **slow oscillating shear plus an in-place deformation field**.
+The oscillation slid the clouds back and forth while the field twisted each mass in place - that is
+not movement, it is procedural deformation, and it is recognizable at a glance. **The primary motion
+of clouds is translation**, and trading translation away for anything else is wrong.
 
-*正确做法*：偏移**按带取常数**。常数偏移的 UV 导数为零，所以想累积多远都不会糊，而带内
-是刚性平移——正是云该有的运动。三条带各采一次贴图，再按 `bandWeights()` 混合；带与带
-之间那一圈混合区正好读作风切变带里的湍流混合，物理上那里本来就是两股反向气流在搅。
-生消的调制场也必须按同样的分带做刚性平流，否则会出现「不动的花纹盖在走的云上」，
-那比没有生消更假。
+*The right answer*: make the offset **constant within a band**. A constant offset has zero UV
+derivative, so it can accumulate arbitrarily far without blurring, and within a band it is rigid
+translation - exactly the motion clouds should have. Each of the three bands samples the texture once
+and they are blended by `bandWeights()`; the blend ring between bands reads precisely as the turbulent
+mixing inside a wind shear layer, which is physically what is there: two opposing flows stirring.
+The modulation field for formation and dissipation has to be rigidly advected per band as well, or
+you get "a stationary pattern laid over moving clouds", which is worse than having none.
 
-速率要压住：地表自转是 0.0088 UV/s，而真实急流只有赤道自转线速的百分之几。云跑得比行星
-转得还快会变成「云在抽」，这里取西风带绕行一圈约五分钟。云量另按 `cloudBand()` 分带：
-赤道辐合带（实际中心约 6°N）最厚、副热带下沉支最薄、中纬风暴轴回升；权重给小，因为这张
-云图是真实观测，本来就含这套气候态。
+The rate has to be held down: the surface rotates at 0.0088 UV/s, while real jet streams are only a
+few percent of the equatorial rotation speed. Clouds moving faster than the planet turns reads as
+"the clouds are being yanked"; this puts the westerlies at about five minutes for a full circuit.
+Cloud cover is banded separately by `cloudBand()`: the intertropical convergence zone (whose real
+center is near 6N) is thickest, the subtropical descending branch thinnest, and the mid-latitude storm
+track rises again. The weight is small, because this cloud map is real observation and already
+contains that climatology.
 
-**火灾挂在「热冲击」上，而热冲击就是阻尼阶梯的副产品。** 不必另外记录变化率：目标温度
-与植被通道（τ=1.8）之间的落差天然就是它——慢慢拧滑块落差始终接近零，猛地拉上去它会飙
-起来、再随慢通道追上而回落。烧起来的正是「跟不上」的那部分生物圈。火线要取噪声的零交叉
-（脊线）才能得到连续的锋面；直接对噪声取高次幂只会得到稀疏的孤立亮点，暗到根本看不见。
-烟往下风方向拖：取上风处的火强度，就得到「这里的烟是那边烧出来的」，风向符号由
-`zonalWind()` 自动给。过火面积 `uBurn` 在 JS 侧积分，烧时涨、植被恢复后以 τ≈22 秒褪去。
+**Fires hang off "thermal shock", and thermal shock is a by-product of the damped ramp.** There is no
+need to track a rate of change separately: the gap between the target temperature and the vegetation
+channel (tau=1.8) is exactly that - ease the slider along and the gap stays near zero, yank it up and
+it spikes, then falls back as the slow channel catches up. What burns is precisely the part of the
+biosphere that could not keep up. A fire line needs the zero crossing of the noise (its ridge) to be
+a continuous front; raising the noise to a high power directly gives sparse isolated points, too dim
+to see at all. Smoke drags downwind: sampling the fire intensity upwind gives "the smoke here was
+made over there", and the sign of the wind comes from `zonalWind()` automatically. Burned area
+`uBurn` is integrated on the JS side: it grows while burning and fades with tau≈22 seconds once the
+vegetation recovers.
 
-**地壳活动靠两条温度通道之差定位。** 岩石圈通道（τ=8）比冰盖通道（τ=4）更慢，把同一个
-冰量函数用两条通道各算一遍，差值就是**冰刚刚退走的那一圈**。冰卸载 → 上地壳回弹减压 →
-减压熔融，冰岛在末次冰消后喷发速率高出今日 30~50 倍并持续千年以上，所以那一圈会亮起
-火山活动。裂缝必须另取一条**窄得多**的脊线：`ridge` 的系数 1.7 是给岩浆海调的，宽到几乎
-处处为正，再高的指数也压不住——同一个噪声值换个系数重算才对。
+**Crustal activity is located by the difference between two temperature channels.** The lithosphere
+channel (tau=8) is slower than the ice channel (tau=4), so evaluating the same ice function on both
+and taking the difference gives **the ring the ice has just retreated from**. Ice unloading -> upper
+crust rebounds and depressurizes -> decompression melting; after the last deglaciation Iceland erupted
+at 30-50 times today's rate for over a thousand years, so that ring lights up with volcanism. The
+fissures must take their own, **much narrower** ridge: the factor 1.7 in `ridge` was tuned for the
+magma sea and is so wide it is positive almost everywhere, and no exponent can hold that back - the
+same noise value has to be re-evaluated with a different factor.
 
-**行星是三层，不是一层壳。** 只有外壳碎开，里面是空的——那颗行星看着就是个气球。
-地壳（r=1）、地幔（r=0.86）、内核（r=0.40）各有自己的断裂窗口：`uFracWin` 让地幔比
-地壳晚裂，`uBurstK` 让它飞得更慢，`_fracture(geo, coarse)` 的 `coarse` 让它碎得更大块
-——越往里越致密。内核根本不裂，只被压实、烧亮，最后作为余烬留在原地。
+**The planet is three layers, not one shell.** With only the shell breaking apart and nothing inside,
+it reads as a balloon. The crust (r=1), mantle (r=0.86) and core (r=0.40) each have their own fracture
+window: `uFracWin` makes the mantle break later than the crust, `uBurstK` makes it fly slower, and
+`coarse` in `_fracture(geo, coarse)` makes it break into larger pieces - denser the further in. The
+core never fractures at all; it is compressed, lit up, and left behind as an ember.
 
-内核同时是**碎片内侧的光源**（`uCoreGlow`，按平方反比衰减）。「里面有东西」这件事主要
-靠那道光成立：没有它，碎开的行星只是一层被吹散的皮。地幔和内核平时 `visible = false`，
-只在 `triggerCrush()` 里打开——完整球体不透明，白渲一层没有意义，二向箔那条路也用不上它们。
+The core is also **the light source for the fragments' inner faces** (`uCoreGlow`, falling off with
+the inverse square). "There is something inside" mostly stands on that light: without it, a broken
+planet is just a skin blown apart. The mantle and core are normally `visible = false` and only switch
+on inside `triggerCrush()` - an intact sphere is opaque, rendering a layer nobody can see is
+pointless, and the foil path never needs them.
 
-**碎片是「块」，不是「面」。** 早先一个三角面就是一片碎片：两万片同样大小、各飞各的，
-飞散参数再怎么调也只能是一地彩纸屑。现在先用 Worley（网格 + 抖动种子取最近，等价 Voronoi
-但只查 27 个邻格，不必和上千种子逐一比对）把面归成约两千个碎块，两档网格密度由一层低频
-噪声挑选，于是有的区域裂成大板块、有的碎成渣。块的面数当质量代理：**同一份冲量下小块飞
-得快、转得急**，大块又慢又稳——尺寸谱和速度谱就此绑在一起。
+**Fragments are pieces, not faces.** One triangle used to be one fragment: twenty thousand identical
+pieces each flying off on their own, and no amount of tuning the scatter parameters could make that
+anything but confetti. Now Worley (a grid with jittered seeds, taking the nearest - equivalent to
+Voronoi but only checking 27 neighbouring cells instead of comparing against thousands of seeds)
+groups the faces into about two thousand fragments, with two grid densities selected by a
+low-frequency noise, so some regions split into large plates and others crumble to grit. A fragment's
+face count is the mass proxy: **under the same impulse a small piece flies faster and spins harder**
+while a large one is slow and steady - binding the size spectrum and the speed spectrum together.
 
-**受光法线必须跟着碎片转。** 这是碎片显得假的头号原因：`vSurf` 是未形变的球面方向，
-早先连受光也用它，于是碎片翻滚时明暗纹丝不动，看着就是一张贴了图的纸。现在分成两路——
-`vSurf` 仍管地表属性（冰按纬度、岩浆按噪声，不能跟着转，否则贴图会滑），`vNrm` 跟着
-碎片的旋转走，专管受光。碎片这才会在翻滚中忽明忽暗。
+**The shading normal has to turn with the fragment.** This is the number one reason fragments look
+fake: `vSurf` is the undeformed sphere direction, and shading used to use it too, so a tumbling
+fragment's light and shade never moved and it looked like a sheet of paper with an image on it. Now
+it is two paths - `vSurf` still drives surface properties (ice by latitude, lava by noise, which must
+not turn or the texture would slide), while `vNrm` follows the fragment's rotation and drives shading
+alone. Only then do fragments flash light and dark as they tumble.
 
-**材质在碎裂时才切 DoubleSide。** 薄三角在 `FrontSide` 下翻到背面会被直接剔掉，一地碎片
-忽闪忽灭——那比「像纸屑」更致命，它连个实体都不是。背面按断面渲染：新剥出来的地幔，没有
-海陆没有云，只有岩石和地心带出的余温，热只加在这一面上（均匀刷满每一面，两千块碎片会一起
-变成橙色的落叶）。完整球体是闭合的，所以只在 `triggerCrush()` 里切、`reset()` 里切回，
-平时不白付一倍的片元着色。
+**The material only switches to DoubleSide during the shatter.** Under `FrontSide` a thin triangle
+turning over is culled outright, and a field of fragments blinks in and out - which is worse than
+"like confetti", it isn't even a solid. The back face is rendered as a fracture surface: freshly
+exposed mantle, no land or sea, no clouds, just rock and the heat brought up from the center, with the
+heat applied to that face only (brushed evenly over every face, two thousand fragments turn into
+orange leaves together). An intact sphere is closed, so it is switched on in `triggerCrush()` and back
+in `reset()`, never paying for twice the fragment shading the rest of the time.
 
-**断裂那一下要停顿。** 2.7 秒里最关键的就是碎裂瞬间，匀速滑过去等于没发生。命中停顿把
-场景时间压到 0.14× 保持 130ms 再用 240ms 放回；镜头震动走真实时间，所以停顿期间画面
-仍在震。闪光挂在 `onShock` 回调上而不是写死的延时——时间被拉长了，写死的必然错开。
+**The fracture needs a pause.** The most important thing in those 2.7 seconds is the instant it
+breaks, and sliding through it at a constant rate is the same as it not happening. Hit-stop compresses
+scene time to 0.14x, holds for 130ms and releases over 240ms; camera shake runs on real time, so the
+image keeps shaking through the pause. The flash hangs off the `onShock` callback rather than a
+hardcoded delay - time has been stretched, and a hardcoded one is guaranteed to drift out of sync.
 
-**二向箔是水平的，因为行星就塌缩进它所在的那个平面。** 早先它是一块竖直面片横着扫过去，
-压出来的却是一张水平的饼——刀面和切面差 90°，那是再怎么调亮度也救不回来的，看上去就是
-一道竖着的光束配一张横着的饼。现在它躺在 `y≈0`（比薄片高 0.06，免得共面打架），前缘沿 X
-推进，与压平后的薄片共面；前缘在行星内部的那一段会被尚未转换的半球挡住，薄片从褶皱底下
-露出来，这正是它该有的遮挡关系。`depthTest` 必须开——关掉它就画在所有东西之上，那是
-「贴在画面上的一道光」和「场景里的一个东西」最直接的区别。
+**The foil is horizontal, because the plane it lies in is the one the planet collapses into.** It
+used to be a vertical quad sweeping sideways while the result was a horizontal disc - the blade and
+the cut plane 90 degrees apart, something no amount of brightness tuning can rescue; it simply looked
+like a vertical beam next to a horizontal pancake. Now it lies at `y ~= 0` (0.06 above the sheet to
+avoid coplanar fighting), its leading edge advances along X, and it is coplanar with the flattened
+sheet; the part of the leading edge inside the planet is occluded by the unconverted hemisphere and
+the sheet emerges from under the folds, which is exactly the occlusion it should have. `depthTest` has
+to stay on - without it the foil draws over everything, which is the most direct difference between
+"a streak of light stuck on the image" and "an object in the scene".
 
-**箔片本身几乎不发光，光来自行星表面。** 真正的光是 `PLANET_FRAG` 里的塌缩前沿：取
-`vFlat` 过渡带的峰值，所以它长在球面上、跟着曲率走，压平推进到哪里它就在哪里。
+**The foil itself barely emits; the light comes from the planet's surface.** The real light is the
+collapse front in `PLANET_FRAG`: it takes the peak of `vFlat`'s transition band, so it grows on the
+sphere, follows its curvature, and is wherever the flattening has reached.
 
-**蓝色的强光和白光的区别在通道比例，不在亮度。** 前沿配色的红通道压在 1 以下
-（`vec3(0.12, 0.42, 1.00)`）。三个通道一起过 1，ACES 一压就全是白，再亮也只是更白的
-一团——早先那版是 `(0.88, 1.72, 2.60)`，看着就是廉价的曝光。
+**The difference between intense blue light and white light is channel ratio, not brightness.** The
+front's red channel is held below 1 (`vec3(0.12, 0.42, 1.00)`). With all three channels over 1, ACES
+compresses everything to white and more brightness only gives a whiter blob - an earlier version was
+`(0.88, 1.72, 2.60)` and looked like cheap over-exposure.
 
-**重玩叫「下一个样本」，不叫「重新开始」。** 编号从 3,241 只往上走，每换一个跳过几个号——
-那几个号不属于你就不会出现；星号随机换，而生物型与纪元一律不变。**对观测者而言它们本来
-就是可互换的**，这比逐个编背景更冷，也让「重玩」自己变成设定的一部分：你不是在重来，
-你是在处理下一个。出口放在判词正下方，因为结束时你正盯着那里；左侧面板那颗
-「恢复初始参数」是过程中的复位，两者不是一回事。
+**Replaying is called "Next specimen", not "Restart".** The number counts up from 3,241 and each new
+one skips a few - those belong to someone else and never appear; the star name is randomized while
+the biology and era never change. **To an observer they are interchangeable anyway**, which reads
+colder than inventing a backstory for each, and it makes replaying part of the premise: you are not
+retrying, you are processing the next one. The exit sits directly under the verdict, because that is
+where you are looking when it ends; the "Reset parameters" button in the left panel is a mid-run
+reset, and the two are not the same thing.
 
-不动手也会结束。把参数拧到底、他们自己耗光的那条路径，原先没有结局也没有出口，只剩一颗
-空行星——现在同样给判词：「没有动用任何武器。」判词期间摄像头只认一件事：**双手击掌**，
-这是「下一个样本」的第二个出口（见下面「击掌换下一个样本」）。
+It can also end without you acting. Twisting the parameters to an extreme until they wear out on
+their own used to have no ending and no exit, leaving an empty planet - it now gets a verdict too:
+"No weapon was used." While the verdict is up the camera watches for exactly one thing: **a clap**,
+the second exit to the next specimen (see "Clap for the next specimen" below).
 
-**手势拨动不占用新姿势。** 握拳和摊掌是武器，**其余一切姿势都是拨**：手在画面里、又没在
-下令，那就是在推这颗星球。不专门指定一个「拨动手势」，是为了不用先学会什么。更进一步：
-**在动的手一律是拨，不管什么手形**——动得快时姿势本身就不可信，只有静止下来的握拳/摊掌
-才算下令。掌心取腕点与四个掌指关节的平均，比任何单点都稳；掌心要滤波（见「One-Euro」），
-再加一个很小的死区。x 必须取反——预览用 `scaleX(-1)` 做了镜像而关键点是原始图像坐标，
-不反过来手往右挥星球会往左转。拨动走的是和鼠标**完全相同**的那条通路
-（`grab / dragBy / release`），惯性、甩速封顶、打击期禁用因此一并继承；指针优先，
-真有人在拖的时候不让摄像头抢同一颗星球——武器也一样，`canFire()` 在指针拖动期间为假。
-武器姿势结束后 250ms 内不起拨：握拳↔摊掌的过渡帧会被判成 None，而 None 就是拨，
-不拦的话每次松拳星球都会被推一下。快甩出画面后 600ms 内回来的手，要静止 150ms 才算
-「接住」，漂着回来的手不抓——否则一记甩出去的旋转会被回来的手顺手按停。
+**Gesture spinning doesn't take up a new pose.** A fist and an open palm are weapons, and
+**every other pose is a spin**: a hand in frame that isn't commanding anything is pushing the planet.
+Not designating a specific "spin gesture" means there is nothing to learn first. Further:
+**a moving hand is always a spin, whatever its shape** - while it moves fast the pose itself can't be
+trusted, and only a fist or palm that has come to rest counts as a command. The palm center is the
+mean of the wrist and four knuckles, steadier than any single point; it is filtered (see "One-Euro")
+with a very small dead zone after that. x must be negated - the preview is mirrored with `scaleX(-1)`
+while the landmarks are raw image coordinates, and without the flip a hand moving right would spin the
+planet left. Spinning goes through **exactly the same** path as the mouse (`grab / dragBy / release`),
+so inertia, the flick speed cap and the lockout during a strike are all inherited; the pointer has
+priority, so while someone is actually dragging the camera doesn't fight them for the planet - and
+weapons the same way, with `canFire()` false during a pointer drag. No spin starts within 250ms of a
+weapon pose ending: the fist-to-palm transition frames read as None, and None means spin, so without
+that guard every unclenched fist would nudge the planet. A hand returning within 600ms of flicking out
+of frame has to hold still for 150ms to count as "catching" it, and a hand drifting back doesn't grab
+- otherwise a spin you just flicked would be casually stopped by the hand coming back.
 
-**识别是一台状态机，类别带迟滞。** 直接拿单帧分类结果当输入，三件事会出问题：握着不动时
-置信度在阈值上来回跳；握拳→摊掌的过渡帧被判成 None；手挥得快时姿势本身不可信。所以：
-进入 0.62、退出要连续 120ms 低于 0.45；**不看 None 的分数**（它没有校准意义，半握的手可以是
-None 0.5 / Closed_Fist 0.45），只按名字取两个武器类别各自的分数，两个都低于 0.30 才算
-「确实没在下令」；掌部关键点贴着画面边缘 4% 以内一律不算武器——手被裁掉一半是 Closed_Fist
-误报的头号来源。快动作解除武装，**重新武装 = 放松且静止 300ms 再加 250ms 冷却**，与手是否
-离开过画面无关：离开画面是暂停，不是重置（早先要求手离开画面才能再发动，那是在逼人把手
-伸出追踪区）。刚进画面的手一律未武装，握着拳进来什么都不会发生。追踪丢失 100ms 以内
-蓄力与武装都原样保留，撑得过两三帧掉帧；位置滤波则每次丢手都复位，回来的那一帧不吐位移。
-所有计时走内部时钟（每帧累加、单步封顶 100ms）：不按帧数——昏暗房间里摄像头掉到 15fps
-帧数计时全部翻倍；也不直接用 `performance.now()` 的差——标签页切走再回来会跳几秒，
-握着的拳当场发动。
+**Recognition is a state machine, and the classes have hysteresis.** Feeding single-frame
+classifications straight in breaks three ways: a held pose makes the confidence flicker across the
+threshold; the fist-to-palm transition frames read as None; and a fast-moving hand's pose is
+untrustworthy. So: enter at 0.62, and leave only after 120ms continuously below 0.45; **the None score
+is ignored** (it isn't calibrated for anything - a half-closed hand can read None 0.5 / Closed_Fist
+0.45), each weapon class's score is read by name, and both have to be below 0.30 to count as
+"genuinely not commanding"; and palm landmarks within 4% of the frame edge never count as a weapon -
+a half-cropped hand is the number one source of false Closed_Fist. Fast movement disarms, and
+**rearming = relaxed and still for 300ms plus a 250ms cooldown**, regardless of whether the hand ever
+left the frame: leaving is a pause, not a reset (it used to require the hand to leave before firing
+again, which forced people to reach outside the tracking area). A hand that has just entered is never
+armed, so coming in with a fist already clenched does nothing. Tracking loss under 100ms leaves the
+charge and armed state untouched, riding out a few dropped frames; position filtering resets on every
+loss, so the frame it returns on emits no displacement. All timing runs on an internal clock
+(accumulated per frame, each step capped at 100ms): not frame counts - in a dim room the camera drops
+to 15fps and every frame-counted timer doubles; and not raw `performance.now()` deltas - switching
+away from the tab and back jumps several seconds and fires a held fist on the spot.
 
-**武器要握住才发动，不是摆出来就发动。** 握拳 0.7 秒、摊掌 0.6 秒，前面还有 100ms 静默期，
-两三帧的误判到不了星球。握拳蓄力时星球是有反应的：镜头微震随蓄力上升，地壳裂缝随
-`uCharge` 亮起——复用的是既有系统（`trauma` 和 `PLANET_FRAG` 里那条脊线），大气不参与。
-辉光**不并进 `rift`**：那条被 `(1-melt)` 和分省遮罩卡着，并进去只在几个火山省亮、熔融行星上
-干脆不亮；外力撕的是整片地壳，所以另起一项、用未分省的脊线。那条脊线比 rift 的密得多，系数只能
-给 1.2——蓄满时刚过 bloom 阈值，缝是亮线；取 2.4 整片大陆溢成白斑，把地表糊掉，正是「渲染管线」
-一节警告过的曝光。海面压到 15%：橙色叠在蓝上会发紫。辉光取平方、震动取线性：震动从一开始就在涨，辉光后半程才起来，
-两段递进。震动峰值 0.18 定在挤压塌缩期（0.10→0.30）之下，发动那一刻只增不减，读作
-0.18→0.30→1.0；定高了会在发动那一帧先掉一截。中途松开或手动起来就中断，积累量以 τ≈0.4s
-回落，不会瞬间消失；分数掉进迟滞带只是暂停不是中断——85% 时松手，那 120ms 的退出延迟
-不能把它送到 100%。二向箔没有蓄力可看：一个二维武器没有「正在积蓄」这回事，只有状态标签
-在走百分比。换样本、复位、判词出现都会 `interrupt()`：那一刻拳头多半还握着，不打断的话
-0.3 秒后就砸在新样本上。蓄力和操控一样走真实时间，只在 `idle` 生效，`reset()` 一并清零。
+**A weapon has to be held to fire, not merely posed.** 0.7 seconds for a fist, 0.6 for a palm, with a
+100ms quiet period in front so two or three misclassified frames never reach the planet. The planet
+reacts while a fist charges: the camera shakes slightly as the charge rises and the crustal fissures
+light up with `uCharge` - both reusing existing systems (`trauma` and that ridge in `PLANET_FRAG`),
+with the atmosphere left out. The glow is **not folded into `rift`**: that one is held back by
+`(1-melt)` and the province mask, so folding it in would light only a few volcanic provinces and
+nothing at all on a molten planet. An external force tears at the whole crust, so it gets its own term
+on an unprovinced ridge. That ridge is far denser than rift's, so its factor can only be 1.2 - at full
+charge it just crosses the bloom threshold and the fissures read as bright lines; at 2.4 whole
+continents blow out to white blobs and smear the surface away, exactly the over-exposure the
+"Rendering pipeline" section warns about. Over water it is held to 15%: orange over blue goes purple.
+The glow is squared and the shake is linear: the shake has been rising from the start while the glow
+only arrives in the second half, giving two stages. The 0.18 shake peak sits below the crush's
+collapse phase (0.10 -> 0.30), so the moment it fires the shake only increases, reading as
+0.18 -> 0.30 -> 1.0; set higher it would drop on the frame it fires. Releasing or moving mid-charge
+aborts, and the accumulated amount decays with tau≈0.4s rather than vanishing; a score dipping into
+the hysteresis band is a pause, not an abort - releasing at 85% must not be carried to 100% by that
+120ms exit delay. The foil has no charge to show: a two-dimensional weapon has no "building up", only
+a percentage on the status tag. Changing specimen, resetting and the verdict appearing all call
+`interrupt()`: the fist is usually still clenched at that moment, and without it the strike would land
+on the new specimen 0.3 seconds later. Charging runs on real time like the handling does, only applies
+while `idle`, and is cleared by `reset()`.
 
-**掌心用 One-Euro 滤波，不用定比 EMA。** EMA 只有一个旋钮：压得住抖就跟不上手。One-Euro 的
-截止频率随速度上升——静止时 1.2Hz 把抖动滤干净，一挥手截止拉高、几乎零延迟。β 的量纲是
-Hz/(单位/秒)：文献里的 0.02~0.05 是按像素速度调的，这里坐标归一化（速度约是像素的 1/640），
-β 要放大到 20 左右才是同一件事。滤波的 dt 取 `video.currentTime` 的差（真实采样间隔），
-识别器的时间戳仍用 `performance.now()`（同一张图内必须单调，而 `currentTime` 换流会归零），
-两者别混。门槛用的速度另走一条 τ=60ms 的短低通，滤波器自己 1Hz 的导数太滞后；解除武装
-用的「快」则看原始速度，第一帧快动作就得生效。
+**The palm is filtered with One-Euro, not a fixed-ratio EMA.** An EMA has one knob: tight enough to
+kill the jitter means too slow to follow the hand. One-Euro's cutoff rises with speed - 1.2Hz at rest
+filters the shake away, and a sweep pushes the cutoff up for near-zero latency. Beta is in Hz per
+(unit/s): the 0.02-0.05 in the literature is tuned for pixel speeds, and here the coordinates are
+normalized (speeds about 1/640 of pixel speeds), so beta has to be around 20 to mean the same thing.
+The filter's dt is the difference of `video.currentTime` (the real sampling interval) while the
+recognizer's timestamps stay on `performance.now()` (which must be monotonic within one image, and
+`currentTime` resets when the stream changes) - don't mix them. The speed used for thresholds gets its
+own tau=60ms low-pass, because the filter's own 1Hz derivative lags too much; the "fast" used for
+disarming reads raw speed, since it has to take effect on the first fast frame.
 
-**松手速度取最近 90ms 的峰值，且只在手还在动时用。** 松手总是被晚检测到：手一张开追踪先掉、
-分类再变，等到 `release()` 那一帧速度估计已经在往下掉。`_input` 记 90ms 的角速度环形缓冲，
-松手时取绝对值最大的样本——但只在当前速度还有峰值 35% 以上时用：拖到一半停住再松开是
-「放下」不是「甩」。只管自转不管倾角：倾角有硬上限且到顶清速，给它峰值就是顶到边界撞一下。
-顺带修了速度估计本身：30fps 的摄像头在 60Hz 的循环里隔帧才有位移，逐帧朝 `dx/dt` 逼近看到的
-是 2 倍尖峰与零交替，稳态在 ±15% 里晃（144Hz 上 ±25%），松手落在哪一帧全凭运气。现在按
-「距上一次输入的真实间隔」估计，输入停了 45ms 以上才往零衰减——鼠标每帧都有事件，行为与
-从前完全一致。缓冲用 `_input` 累计的 dt 计时而不是 `performance.now()`：采集脚本逐帧驱动
-`update()` 时墙钟并不等距。这条改在 `planet.js` 里，鼠标一并受益。
+**Release speed is the peak of the last 90ms, and only used while the hand is still moving.** A
+release is always detected late: as the hand opens, tracking drops first and the classification
+changes after, so by the frame `release()` runs the speed estimate is already falling. `_input` keeps
+a 90ms ring buffer of angular velocity and the release takes the largest sample by absolute value -
+but only while the current speed is still at least 35% of that peak: dragging, stopping, then letting
+go is "putting it down", not "flicking it". Spin only, never tilt: tilt has a hard limit and clears
+its speed on reaching it, so a peak there is just a bump against the boundary. This also fixed the
+speed estimate itself: a 30fps camera in a 60Hz loop only moves on alternate frames, so approaching
+`dx/dt` per frame sees alternating double-spikes and zeros, wobbling within +/-15% at steady state
+(+/-25% at 144Hz), and which frame the release lands on is pure luck. It is now estimated over the
+real interval since the last input, decaying toward zero only after input has stopped for 45ms - a
+mouse has an event every frame, so its behaviour is unchanged. The buffer is timed by dt accumulated
+in `_input` rather than `performance.now()`: when a capture script drives `update()` frame by frame,
+the wall clock is not evenly spaced. This change lives in `planet.js`, so the mouse benefits too.
 
-**击掌换下一个样本，只在判词期间。** 平时识别器只跟一只手（`numHands:1`，省一半算力，也没有
-第二只手来抢星球）；判词一出来切到两只手（`rec.setOptions({numHands:2})`——这个 bundle 里
-不带 `baseOptions` 时是同步重建图，但仍按 promise 处理；切换期间的帧丢弃；`stop()/start()`
-中途换了识别器要认出来；`numHands` 在它的 setOptions 里是无条件写入的，必须显式给），
-点「下一个样本」再切回。双手模式下拨动与武器一律挂起。击掌是**一个动作，不是一个姿势**：
-两手张开、指尖朝上、掌心距离（按手长——腕到中指根——归一化，远近都成立）500ms 内先分开过
-2.2 个手长、再以 ≥4 手长/秒合拢到 1.1 个手长以内就算；合掌那一刻追踪常会丢一只手，所以
-「刚快速合拢、然后少了一只」也算。不看类别：正对摄像头的击掌是侧着的，那一刻 Open_Palm
-的分数会塌掉。MediaPipe 两手的顺序帧间任意，所有量对称地算，不看左右手标签。边沿触发，
-1 秒冷却，冷却跨越模式切换。
+**Clap for the next specimen, only while the verdict is up.** Normally the recognizer tracks one hand
+(`numHands:1`, half the compute, and no second hand competing for the planet); when the verdict
+appears it switches to two (`rec.setOptions({numHands:2})` - in this bundle, without `baseOptions`
+that rebuilds the graph synchronously but is still handled as a promise; frames during the switch are
+discarded; a `stop()/start()` swapping the recognizer mid-switch has to be detected; and `numHands` is
+written unconditionally in its setOptions, so it must be passed explicitly), and clicking "Next
+specimen" switches back. Spin and weapons are suspended in two-hand mode. A clap is **a motion, not a
+pose**: both hands open, fingertips up, and the palm distance (normalized by hand length - wrist to
+middle knuckle - so it holds at any distance) must have been at least 2.2 hand lengths apart within
+500ms and then close to within 1.1 at 4 hand lengths per second or more. Tracking often loses a hand
+at the moment they meet, so "just closed fast and then one went missing" counts too. Classes are
+ignored: a clap facing the camera is edge-on and Open_Palm's score collapses right then. MediaPipe's
+ordering of the two hands varies between frames, so everything is computed symmetrically and the
+handedness label is never read. Edge triggered, with a 1 second cooldown that survives a mode switch.
 
-**转动行星靠 UV 偏移，不靠转网格。** 「网格永不旋转」是二向箔沿固定世界平面压缩的前提，
-所以横向拖动走的是 `uSpinUV` 那条既有通路——转的是贴图与云，晨昏线和纬度带留在原处。
-这不是将就：真实自转下太阳本来就不跟着转，纬度带也本来就不动，所以这条路径反而更对。
-纵向拖动则是抬降机位（`userEl`），等于把地球仪扳过来看极区，扳到 `TILT_MAX` 要**把动量一并
-卸掉**，否则松手后会一直贴着边界抖；上限也不能太高，再高 `up` 与视轴就快平行了，`lookAt`
-会退化。
+**Turning the planet is a UV offset, not a rotating mesh.** "The mesh never rotates" is the
+precondition for the foil compressing along a fixed world plane, so horizontal dragging goes through
+the existing `uSpinUV` path - what turns is the textures and clouds, while the terminator and the
+latitude bands stay put. That is not a compromise: under real rotation the sun does not turn with the
+planet and the latitude bands do not move either, so this path is actually more correct. Vertical
+dragging raises and lowers the camera (`userEl`), which is tipping the globe to look at a pole;
+reaching `TILT_MAX` has to **clear the momentum with it**, or it vibrates against the boundary forever
+after release. The limit can't be too high either: any higher and `up` is nearly parallel to the view
+axis, where `lookAt` degenerates.
 
-甩速要封顶。地球仪的手感来自惯性，但没有上限的话一记快扫就把它甩成陀螺，地表读不出来，
-也就谈不上「操控」——能看清自己在拨弄什么，才是这件事的意义。打击进行中禁止抓取：那时候
-镜头归编排管。
+The flick speed needs a cap. A globe's feel comes from inertia, but with no ceiling one fast sweep
+turns it into a gyroscope, the surface becomes unreadable, and there is no "handling" left to speak of
+- being able to see what you are turning is the point of the whole thing. Grabbing is refused during a
+strike: the camera belongs to the choreography then.
 
-文明能察觉的只有这一件事。温度和气压他们还能归因于恒星活动，天空以错误的速度移动却无法
-解释——`spun` 按弧度累计人为拨动量，跨过阈值就播报。这是整个模拟里唯一一处他们
-「意识到被干预」的出口，也是这套交互真正的落点。
+The one thing the civilization can notice. Temperature and pressure they can still blame on stellar
+activity, but a sky moving at the wrong speed has no explanation - `spun` accumulates the externally
+imposed rotation in radians, and crossing a threshold triggers a broadcast. This is the only place in
+the whole simulation where they realize they are being interfered with, and it is what this whole
+interaction is really for.
 
-**「漂浮感」是运动学和构图的问题，不是着色的问题。** 三处根因：
+**The "floating" look is a problem of kinematics and composition, not shading.** Three root causes:
 
-`lookAt(0, 0, 0)` 把行星永久钉在画面正中央。没有任何真实机位能做到那件事，所以它会读成
-贴在屏幕上的精灵。现在视轴带一个缓慢漂移的偏置，主体在画面里会呼吸。
+`lookAt(0, 0, 0)` pins the planet permanently to the center of the frame. No real camera position
+does that, so it reads as a sprite stuck to the screen. The view axis now carries a slowly drifting
+offset, and the subject breathes within the frame.
 
-相机的 `up` 原本恰好是世界 +Y，而行星自转轴也是世界 Y——纬度带、自转方向、两极全部与
-屏幕轴对齐，那读起来是「一颗贴了滚动贴图的球」。给 `up` 一个 `CAM_TILT` 倾角，相当于给
-这颗行星一个相对观测者的黄赤交角。**不要为此旋转网格**：「网格永不旋转」是二向箔沿固定
-世界平面压缩的前提。附带的好处是压平后的薄片变成空间里一个倾斜的平面，而不是横贯屏幕的
-一条线。
+The camera's `up` used to be exactly world +Y, and the planet's rotation axis is world Y too - so the
+latitude bands, the direction of rotation and the poles all aligned with the screen axes, which reads
+as "a sphere with a scrolling texture". Giving `up` a `CAM_TILT` is giving this planet an axial tilt
+relative to the observer. **Don't rotate the mesh for it**: "the mesh never rotates" is the
+precondition for the foil compressing along a fixed world plane. A side benefit is that the flattened
+sheet becomes a tilted plane in space rather than a line across the screen.
 
-漂移原本是两条纯正弦，每约四十秒反向一次——那正是「浮在水里」的运动学签名：没有方向、
-没有尽头、完美光滑。改用噪声场：不周期，方向能连续保持很久，读起来是被载着走。
+The drift used to be two pure sines reversing about every forty seconds - precisely the kinematic
+signature of "floating in water": no direction, no end, perfectly smooth. A noise field instead: it is
+aperiodic, holds a direction for a long time, and reads as being carried along.
 
-星空同理。均匀随机的单色点会读成一块平面背景板，行星就成了浮在它前面的贴片。恒星按光谱
-类型分色（橙红→白→蓝白，中段最多），并把五分之一的密度压向一条倾斜的银道带——银道面的
-法线要和视轴、自转轴都错开，否则又会多一条与屏幕对齐的线。
+The same goes for the starfield. Uniformly random monochrome points read as a flat backdrop, which
+turns the planet into a decal in front of it. Stars are colored by spectral type (orange-red -> white
+-> blue-white, with the middle most common) and a fifth of the density is pushed into a tilted
+galactic band - whose plane normal has to be offset from both the view axis and the rotation axis, or
+there would be yet another screen-aligned line.
 
-**震动抖旋转，不抖平移。** 位移取 `trauma²`（感知是指数的，平方让它起得猛收得干净），
-方向取自一维值噪声而非逐帧随机数——随机数抖出来的是高频噪点，噪声场抖出来的才是晃动。
-抖动施加在 `_applyCam()` 之后，而 `_applyCam()` 每帧重设朝向，所以不会累积。
+**Shake rotates, it doesn't translate.** The displacement is `trauma^2` (perception is exponential,
+and squaring makes it start hard and finish cleanly), and the direction comes from one-dimensional
+value noise rather than a per-frame random number - random numbers shake as high-frequency speckle,
+a noise field shakes as movement. The shake is applied after `_applyCam()`, and since `_applyCam()`
+resets the orientation every frame, nothing accumulates.
 
-**行星网格永不旋转。** 自转是 shader 里偏移噪声采样实现的（`uSpin`）。这样物体空间的
-坐标轴相对场景恒定，二向箔沿固定平面压缩才不会跟着转。想改自转方式前先想清楚这一点。
+**The planet mesh never rotates.** Spin is implemented as an offset of the noise sampling in the
+shader (`uSpin`). That keeps object-space axes fixed relative to the scene, so the foil compressing
+along a fixed plane doesn't turn with it. Think this through before changing how spin works.
 
-**二向箔沿 Y 轴塌缩到水平面，不是沿视线方向。** 正对相机压平是看不出来的——厚度归零
-需要视差才能读出。塌缩到水平面 + 相机俯角掠射，才能看见那片薄片。相机在扫掠开始的
-前 24% 就转到位，赶在箔片抵达行星之前。
+**The foil collapses along Y onto the horizontal plane, not along the view direction.** Flattening
+cannot be seen head on - reading a thickness going to zero needs parallax. Collapsing onto the
+horizontal plane with the camera at a grazing angle is what makes the sheet visible. The camera is in
+position within the first 24% of the sweep, ahead of the foil reaching the planet.
 
-**压平量是逐顶点算的**（`flatAmount()` 按顶点 x 相对箔片位置），所以扫掠中途会出现
-「左半边已是二维画、右半边还是球体」的画面——那是整个效果最好的一帧。
+**The amount of flattening is computed per vertex** (`flatAmount()` from the vertex's x relative to
+the foil's position), so mid-sweep there is a frame with "the left half already a two-dimensional
+painting, the right half still a sphere" - the best frame in the whole effect.
 
-**光源在 +X。** 箔片由 -X 扫向 +X，残留的三维半球必须留在受光面，否则最后剩下的是一
-团黑影。
+**The light source is at +X.** The foil sweeps from -X to +X, so the remaining three-dimensional
+hemisphere has to be on the lit side, or what is left at the end is a black silhouette.
 
-**`IcosahedronGeometry` 的 detail 是每面切 `(detail+1)²`，不是 `4^detail`。**
-当前 detail 28 = 20×29² = 16820 面，碎片投影约 9px。
+**`IcosahedronGeometry`'s detail subdivides each face into `(detail+1)^2`, not `4^detail`.**
+The current detail 28 = 20 x 29^2 = 16820 faces, with fragments projecting to about 9px.
 
-**云层和大气只压平、不碎裂。** 它们调 `flatten()` 而非 `deform()`，挤压时整体消散。
-早期版本让它们走了碎片路径，结果整个云壳作为一个刚体在翻滚。
+**Clouds and atmosphere only flatten, they never shatter.** They call `flatten()` rather than
+`deform()` and disperse as a whole during the crush. An early version put them through the fragment
+path, and the entire cloud shell tumbled as one rigid body.
 
-**碎片余温挂在「分离度」`burst` 上，不是总进度 `uShatter`。** 挂错了会让尚未裂开的
-完整球体整颗自发光，配合 bloom 就是一个纯白圆盘。内核辉光同理，必须等碎片开始分离。
+**A fragment's afterglow hangs off its separation, `burst`, not the overall `uShatter`.** Get that
+wrong and an intact sphere that hasn't broken yet glows all over, which with bloom is a solid white
+disc. The core glow is the same: it has to wait until the fragments start separating.
 
-**碎片的翻滚轴 `aAxis` 与飞散方向 `aDir` 必须独立。** 共用一个的话碎片只会绕自己的
-飞行轴自旋、始终正对镜头，看起来是一地彩纸屑。飞散速度用 `rnd³` 拉长尾，
-少数冲得远、多数留在近处。
+**A fragment's tumble axis `aAxis` and scatter direction `aDir` must be independent.** Sharing one
+makes each fragment spin about its own flight axis, staying face-on to the camera, and it looks like a
+floor covered in confetti. Scatter speed uses `rnd^3` to lengthen the tail, so a few fly far and most
+stay near.
 
-## 生存模式
+## Survival mode
 
-**只认摄像头。** 射击的成本是「用手把准星压到石头上」，这在鼠标上是零成本，在手上是真实的——难度来自
-手，不来自陨石。所以没有鼠标版，也不是没做完；900px 以下 `.cam` 隐藏，这个模式随之不存在。
-入口在摄像头面板里，关掉摄像头即退出。
+**Camera only.** The cost of a shot is putting the crosshair on the rock with your hand, which is free
+with a mouse and real with a hand - the difficulty comes from the hand, not from the asteroids. So
+there is no mouse version, and it isn't unfinished; below 900px `.cam` is hidden and this mode ceases
+to exist with it. The entrance is in the camera panel, and turning the camera off leaves it.
 
-**指到即射，没有扣扳机。** 没有一个手势是「开火」：同一条原则（在动的手一律不下令）意味着任何触发
-姿势都要先静止再判类，而「指→捏」的过渡帧会被判成 None 或 Closed_Fist——后者是武器。所以射击不要
-任何确认：准星压到石头上就打（两发之间留 0.12s，扫过一片也不会一帧全清）。护盾要停住——
-它是要占地方的东西，不该被划过去的手顺手放下：✌️ 比着不放，每满 0.5s 在准星处落一块，一块挡两颗、
-只活 7 秒（最后 1 秒渐隐）——盾是临时的东西，不是城墙，得一直补。
-进度只在确认是 ✌️ 的帧里长，迟滞带里发 `aim(null)`；但空档放宽到 250ms（分数抖一下、摄像头卡一帧）
-只暂停不清零，更久才慢慢退。✌️ 的判据除了绝对长度还有一条相对的：食指中指明显长过无名指小指——
-无名指半张、V 朝镜头倾斜，绝对长度都塌，比值不受影响。满 8 块时新的顶掉最旧的。
+**Point and it fires; there is no trigger.** No gesture is "fire": the same principle (a moving hand
+never commands) means any trigger pose would have to come to rest before being classified, and the
+transition frames of point-to-pinch read as None or Closed_Fist - the latter being a weapon. So a shot
+takes no confirmation at all: put the crosshair on a rock and it fires (with 0.12s between shots, so
+sweeping across a cluster can't clear it in one frame). A shield does need a hold - it is something
+that takes up space and should not be dropped by a hand sweeping past: hold the ✌️ and one lands at
+the crosshair every 0.5s, each blocking two rocks and living only 7 seconds (fading over the last
+one) - a shield is a temporary thing, not a wall, and has to be replenished.
+Progress only grows on frames confirmed as a V, and the hysteresis band emits `aim(null)`; but the gap
+tolerance is widened to 250ms (a flickering score, one stalled camera frame), which pauses rather than
+clears, and only a longer gap unwinds it. Besides absolute length, the V has a relative test: index
+and middle clearly longer than ring and pinky - a half-curled ring finger or a V tilted toward the
+camera collapses the absolute lengths while leaving the ratio untouched. At 8 shields alive, a new one
+evicts the oldest.
 
-**指向要有几何判据。** `Pointing_Up` 只认竖着的食指，指屏幕角落时分数塌掉。按指尖到腕的距离
-（按手长归一）补一条软分数——食指伸直、其余三指蜷起——与分类器分数取大，走同一套迟滞。
-指尖各走一对 One-Euro，不和掌心共用：掌心是速度裁判，指尖是准星。指尖到视口的增益 1.25，
-y 再按「视口宽高比 / 画面宽高比」补上去，手画的圆在屏上仍是圆（推导：位移 δ 在画面里是
-δ/W、δ/H，屏上等距要求 gy = gx·视口宽高比/画面宽高比）。
+**Pointing needs a geometric test.** `Pointing_Up` only recognizes a vertical index finger and its
+score collapses when pointing at a corner of the screen. A soft score from fingertip-to-wrist distance
+(normalized by hand length) - index extended, the other three curled - is maxed with the classifier's
+score and runs through the same hysteresis. The fingertip gets its own pair of One-Euro filters rather
+than sharing the palm's: the palm judges speed, the fingertip is the crosshair. Fingertip-to-viewport
+gain is 1.25, with y corrected by (viewport aspect / camera aspect) so a circle drawn by the hand is
+still a circle on screen (derivation: a displacement d is d/W and d/H in the camera frame, and equal
+distances on screen require gy = gx * viewport aspect / camera aspect).
 
-**武器仍然在线。** 分类器不认「模式」，关掉握拳等于再造一套过渡规则；何况这正是紧张感的来源
-——攥紧的拳头会压碎你在保护的东西。冲突规则只有一条：**静止且确信的武器压过瞄准，反过来永远
-不成立**；在动的手武器分数一律归零，所以瞄准永远抢不走。从瞄准切到握拳不等 120ms 的退出延迟，
-当帧改判——静止的拳头没有歧义。
+**Weapons stay live.** The classifier knows nothing about "modes", and disabling the fist would mean
+inventing another set of transition rules; besides, this is exactly where the tension comes from - a
+clenched fist crushes the thing you are protecting. There is one conflict rule: **a still, confident
+weapon beats aiming, and never the other way round**; a moving hand has its weapon scores zeroed, so
+aiming can never be stolen. Switching from aiming to a fist skips the 120ms exit delay and
+reclassifies on the same frame - a still fist is unambiguous.
 
-**护盾的代价是气压。** 一块平面挡下两颗撞击就碎（不碎也只撑 7 秒），但它是加进大气里的东西：气压走对数轴，两块之后宜居
-0.61，七块 0.10，几块之后文明自己的 `thick1`（7.5 atm）播报就会到——他们的读数就是你的计分板。
-这是这个模式里唯一的资源决策。盾是不透明的（55% 的体、发光的边），**登记深度而不是藏起来**：
-藏起来的话它的像素会取到星空的深度，景深把 0.42 单位的硬边糊成 8 像素，那就不是一块「二维的东西」了。
+**A shield costs pressure.** One plate shatters after blocking two impacts (and only lives 7 seconds
+anyway), but it is something added to the atmosphere: pressure runs on a log axis, so two plates put
+habitability at 0.61 and seven at 0.10, and after a few the civilization's own `thick1` (7.5 atm)
+broadcast arrives - their readouts are your scoreboard. This is the only resource decision in the
+mode. A shield is opaque (55% body, glowing edge) and **registers depth rather than hiding**: hidden,
+its pixels would take the starfield's depth and depth of field would smear its 0.42-unit hard edge
+across 8 pixels, and then it would no longer be "a two-dimensional thing".
 
-**撞击要粘在地面上。** `n0` 不随贴图走（自转是 UV 偏移），直接存世界方向的话光斑会从地面上
-滑开（0.055 rad/s，4 秒 12°）。按撞击时刻的 `uSpinUV` 去自转后存入，着色器再按当前 `uSpinUV`
-转回来；符号由 SphereGeometry 的 UV 走向推出（见 `planet.js` 的 `IMPACT_N` 处），实测法是往一条
-认得出的海岸线上砸一下再拨动自转。坑的角半径 ≈ 石头半径，辉光系数 0.9：落地那半秒刚过 bloom
-阈值闪一下，之后退成不溢出的暗红余温——取 3.2 的话每个坑都是一整块白斑，把半颗星糊掉。
-疤只留在陆地和干涸的海床上，一分钟里被尘埃盖掉。
+**Impacts have to stick to the ground.** `n0` does not follow the texture (spin is a UV offset), so
+storing a world direction directly would let the flash slide off the ground (0.055 rad/s, 12 degrees
+in four seconds). The direction is de-spun by `uSpinUV` at the moment of impact before being stored,
+and the shader rotates it back by the current `uSpinUV`; the sign follows from SphereGeometry's UV
+convention (see `IMPACT_N` in `planet.js`), and the way to test it is to hit a recognizable coastline
+and then spin the planet. A crater's angular radius is about the rock's radius, and the glow factor is
+0.9: for the half second after landing it just crosses the bloom threshold and flashes, then falls
+back to a dark red afterglow that doesn't clip - at 3.2 every crater is a solid white blob smearing
+half the planet. Scars remain only on land and dried-out sea floor, and dust covers them over a minute.
 
-**外来物体必须登记深度。** 景深的深度图是整个场景照常渲一遍，不登记的网格会把自己的颜色写进
-深度图。不透明的（陨石 InstancedMesh、护盾）走 `trackDepth`——一套顶点着色器通吃平移/旋转/缩放
-含实例矩阵；叠加的（光束、碎屑）走 `overlay`，渲深度时藏起来。陨石生成在过球心、垂直视轴的
-平面上的一个环上（半径 2.8，画面半宽 2.58，刚在画外），既从边缘进来，也留在景深 ±2.5 的合焦带里。
+**Foreign objects must register depth.** The depth map for depth of field renders the whole scene as
+usual, and an unregistered mesh writes its own color into it. Opaque ones (the asteroid InstancedMesh,
+the shields) use `trackDepth` - one vertex shader covers translation, rotation and scale including the
+instance matrix; additive ones (beams, debris) use `overlay` and are hidden while depth is rendered.
+Asteroids spawn on a ring on the plane through the planet's center perpendicular to the view axis
+(radius 2.8, against a half-frame width of 2.58, so just off screen), which both brings them in from
+the edge and keeps them inside the +/-2.5 in-focus band.
 
-**没有灯。** 全场没有 THREE 灯，陨石和护盾和行星一样拿 `uLightDir` 自己算 Lambert；陨石的
-反照率压在 0.3 以下，进入大气的辉光烧在朝行星的那一面（那就是迎风面，不必传速度）并过 bloom 阈值。
-光束的蓝通道过 1.1、红压在 1 下：是蓝光不是白光，理由同箔片。
+**There are no lights.** There are no THREE lights anywhere in this scene; the asteroids and shields
+compute their own Lambert term from `uLightDir` exactly as the planet does. An asteroid's albedo is
+held below 0.3, and its entry glow burns on the side facing the planet (which is the leading face, so
+no velocity needs passing in) and crosses the bloom threshold. A beam's blue channel goes over 1.1
+while red is held under 1: blue light, not white, for the same reason as the foil.
 
-**分只来自陨石，且要自己收手才算数。** 击落一颗 5、护盾拦下一颗 2，时间不给分：活得久不是本事，
-打下来的才是；拦截给分是让护盾的加压有回报。难度按分定档：起步慢，125 分（二十五颗）快一点，
-200 分（四十颗）再快，往后每 100 分再加一成；时间再乘一层，半分钟、一分钟各再快一档（×1.15 / ×1.30），
-只拦不打也躲不过钟表——目标值按 τ=4s 逼近，换档读作「快了一点」而不是跳变。
-温度到 640K（熔融刚起、`hot3` 已播）走既有的引力挤压——分照算，评级按分：100 分半神、250 分神、
-其余是人。自己按下武器（握拳 / 摊掌）结束这一局，**+20**（四颗的分），但**评级一律是魔**——
-哪怕已经是神的分数，动手的那一刻就是魔。560K 起画面正中挂预警（610K 转红）。判词在生存模式里说的是你——
-评级、分、怎么结束的——而不是他们的故事。于是「什么时候收手」成了这个模式真正的决策：拖得越久分越高，也越可能被下一颗砸穿。
-文明沉默（约 391K 就没了）只是中途的一件事，不是结局——结局是行星。
+**Score comes only from asteroids, and self-ending is its own rule.** 5 for a kill, 2 for one a shield
+blocks, and nothing for time: surviving isn't the skill, shooting them down is, and giving blocks
+points is what makes the shields' pressure cost worth paying. Difficulty steps by score: slow to
+start, a little faster at 125 points (twenty-five rocks), faster again at 200 (forty), then another
+ten percent per 100; time multiplies on top with another step at thirty seconds and at sixty (x1.15 /
+x1.30), so someone who only blocks can't outrun the clock either - targets are approached with tau=4s
+so a step reads as "a bit faster" rather than a jump.
+Reaching 640K (melting has just begun and `hot3` has aired) runs the existing gravity crush - the
+score still stands, and the tier follows it: 100 points DEMIGOD, 250 GOD, otherwise HUMAN. Firing a
+weapon yourself (fist / open palm) to end the run adds **+20** (four rocks' worth), but **the tier is
+always DEVIL** - even at a god's score, the moment you act you are the devil. From 560K a warning
+hangs in the center of the screen (red from 610K). In survival the verdict is about you - tier, score,
+how it ended - rather than their story. Which makes "when to stop" the real decision in this mode: the
+longer you hold on the higher the score, and the likelier the next rock gets through.
+The civilization falling silent (they are gone around 391K) is something that happens along the way,
+not an ending - the ending is the planet.
 
-**击碎是一把渣，不是一次消失。** 打中的石头裂成 7~11 块碎片，走同一套实例渲染（发红、快速翻滚、
-飞散、缩小、半秒内冷掉），不与任何东西碰撞、也不能当靶子。外加一道白闪与光束。命中圈也放宽到
-`max(46, 投影半径×2.6 + 22)` 像素——手比鼠标抖，圈要宽。
+**A kill is a handful of grit, not a disappearance.** A rock that is hit breaks into 7-11 shards using
+the same instanced renderer (glowing red, tumbling fast, flying apart, shrinking, cooled within half a
+second), colliding with nothing and untargetable. Plus a white flash and the beam. The hit circle is
+also generous at `max(46, projected radius * 2.6 + 22)` pixels - a hand shakes more than a mouse.
 
-## 生存结算（可选）
+## Survival scoring (optional)
 
-一局结束时把观测者本人画出来：**魔**（亲手压碎了它，不管多少分）、**人**（行星先你一步死去，不到 100 分）、
-**半神**（≥100 分，二十颗）、**神**（≥250 分，五十颗）。同一档里分越高画面越猛：每档三级
-（`serve.py` 的 `POWER`），写进提示词的「Power level」段——小鬼 / 魔 / 魔王，新兵 / 老兵 / 传奇，如此类推。画像由 Gemini 按当时的表情生成：16:9 横幅高清（1K 约 1344×768，`GEMINI_IMAGE_SIZE=2K` 更锐），
-一律明亮、脸清晰且经过修饰，背景按档位各是一个世界（神：天光云海与光翼；魔：熔岩与火星；人：明亮的观测室）。
-每档是一整套人物设定：人是持双枪的守卫者，魔手持熔岩黑曜石长矛，半神是山巅晨光里的半升格战士
-（残缺的光环、单翼、光剑与掌中星球），神背后是光环与光翼、掌中有星球；
-构图取腰部以上的中景，手和道具都在画面里。计分卡与榜单上都写明评级（魔 DEVIL / 人 HUMAN / 神 GOD）。
-模型偶尔交一张阴沉的图，服务器会量一次平均亮度，偏暗的提亮一档（有 Pillow 才做，同 `fetch-assets.sh`）。
-存在本机，榜单也在本机。这部分需要本地服务器，`serve.py` 就是；GitHub Pages 上没有，判词照出，画像退成
-原片按档调色，榜单只活在本页内存里。
+At the end of a run, the observer themselves is drawn: **DEVIL** (you crushed it yourself, at any
+score), **HUMAN** (the planet died before you did, under 100 points), **DEMIGOD** (>=100, twenty
+rocks) and **GOD** (>=250, fifty rocks). Within a tier, a higher score means a fiercer image: three
+levels per tier (`POWER` in `serve.py`), written into the prompt as its "Power level" paragraph -
+lesser devil / devil / archdevil, rookie / veteran / legend, and so on. The portrait is generated by
+Gemini from the expression at that moment: a 16:9 landscape in HD (1K is about 1344x768, and
+`GEMINI_IMAGE_SIZE=2K` is sharper), always bright, the face sharp and flattered, with a background
+that is a whole world per tier (god: sunlit clouds and wings of light; devil: lava and embers; human:
+a bright observation room). Each tier is a complete character brief: the human is a defender with twin
+pistols, the devil holds an obsidian spear veined with lava, the demigod is a half-ascended warrior in
+the dawn light on a summit (a partial halo, a single wing, a sword of light and a planet above the
+palm), and the god has rings and wings of light behind them and planets in their hands. The
+composition is a medium shot from the waist up, with the hands and props in frame. The tier is written
+on the scorecard and on the board (DEVIL / HUMAN / DEMIGOD / GOD).
+The model occasionally hands back a murky image, so the server measures the mean brightness once and
+lifts the dark ones a stop (only with Pillow present, same as `fetch-assets.sh`).
+Everything stays on your machine, board included. This part needs a local server, which is what
+`serve.py` is; on GitHub Pages there is none, so the verdict still appears, the portrait degrades to
+the raw snapshot tinted by tier, and the board lives only in the page's memory.
 
 ```bash
-cp .env.example .env      # 填 GEMINI_API_KEY（或直接 export）
-python serve.py 8123      # 启动行会打印密钥是否加载；首次结算时列一次可用模型并按偏好挑
+cp .env.example .env      # fill in GEMINI_API_KEY (or just export it)
+python serve.py 8123      # startup prints whether the key loaded; the first run lists the available models and picks by preference
 ```
 
-流程：一局结束的**那一帧**（你按下武器、或砸穿 640K 的那颗落地）从摄像头抓一张镜像 JPEG——
-判词要等 2.7 秒的碎裂动画，那时脸上的反应已经散了。`POST /api/finish` → 文本模型读表情（严格
-JSON，宽松解析）→ 图像模型按档生成画像（保留本人相貌与当下表情，不做漫画）→ 存
-`runs/<时间>_<代号>_<档>.png|jpg` → 追加 `runs/leaderboard.json`（原子替换）。画像失败不算请求
-失败：榜单照记，画像留空。开局前要填「观测者代号」，记在 `localStorage`。
+The flow: on **the frame** a run ends (you fire a weapon, or the rock that pushes it through 640K
+lands) a mirrored JPEG is grabbed from the camera - the verdict waits out a 2.7 second shatter
+animation, and by then the reaction has left the face. `POST /api/finish` -> the text model reads the
+emotion (strict JSON out, lenient parsing in) -> the image model generates the portrait for that tier
+(keeping the person's face and their expression, never a caricature) -> saved to
+`runs/<time>_<callsign>_<tier>.png|jpg` -> appended to `runs/leaderboard.json` (atomically replaced).
+A failed portrait is not a failed request: the board still records it and the portrait is left empty.
+A callsign has to be entered before a run and is remembered in `localStorage`.
 
-隐私：抓拍只在一局结束时发生一次，只发往 Google 的 Gemini API，原片不落盘；画像与榜单只在
-本机 `runs/`（gitignore）。密钥只从环境变量或同目录 `.env` 读，`serve.py` 不对外服务任何点文件。
-`deploy.sh` 不需改：它只拷 `index.html css js …`，`runs/` 与 `.env` 天然不在列。
+Privacy: the snapshot happens once, at the end of a run, goes only to Google's Gemini API, and the raw
+frame is never written to disk; the portrait and the board live only in the local `runs/`. The key is
+read only from the environment or from a `.env` in the same directory, and `serve.py` serves no
+dotfiles at all. `deploy.sh` needs no changes: it only copies `index.html css js ...`, so `runs/` and
+`.env` are naturally not in the list.
 
-## 渲染管线
+## Rendering pipeline
 
-场景在**线性 HDR 空间**渲染，自发光项（城市灯火 / 岩浆 / 海洋高光 / 箔片 / 内核）
-刻意输出大于 1.0 的值。链路是
-`RenderPass → 景深 → UnrealBloom → OutputPass（ACES + sRGB）→ 颗粒`。
+The scene renders in **linear HDR**, with emissive terms (city lights / magma / ocean highlights /
+foil / core) deliberately outputting values above 1.0. The chain is
+`RenderPass -> depth of field -> UnrealBloom -> OutputPass (ACES + sRGB) -> grain`.
 
-**景深的深度图必须自己渲。** three 自带的 `BokehPass` 用 `scene.overrideMaterial` 渲深度，
-那会绕开我们写在顶点着色器里的形变——碎片的深度会停留在未碎裂的球面上，最该虚化的近处
-碎片反而全是实的。所以逐对象换材质渲一张，形变共用同一批 uniform；存的是到相机的径向
-距离（除以 `DEPTH_FAR = 20`），星空在 42~56，会被夹到 1.0，天然落在焦外。对焦面锁在行星
-中心，镜头退开时焦点跟着退，否则挤压一开始退就全虚了。采样用 Vogel 螺旋（黄金角铺点，
-接近泊松盘，且不需要 GLSL ES 1.0 不支持的常量数组），合焦区早退，省掉整屏采样。
+**Depth of field has to render its own depth map.** three's own `BokehPass` renders depth with
+`scene.overrideMaterial`, which bypasses the deformation written into our vertex shader - a fragment's
+depth would stay on the unshattered sphere, and the near fragments that most need blurring would come
+out perfectly sharp. So it renders one by swapping materials per object, with the deformation sharing
+the same uniforms; what is stored is radial distance to the camera (divided by `DEPTH_FAR = 20`), and
+the starfield at 42-56 clamps to 1.0 and naturally falls out of focus. The focal plane is locked to
+the planet's center so the focus pulls back with the camera - otherwise everything blurs the moment
+the crush starts moving it. Sampling uses a Vogel spiral (points spread by the golden angle, close to
+a Poisson disc, and needing no const array, which GLSL ES 1.0 doesn't support), with an early exit in
+the in-focus region that saves sampling the whole screen.
 
-**颗粒挂在 `OutputPass` 之后**：它是胶片/传感器的产物，该落在色调映射之后的显示空间里，
-放在前面会被一起色调映射掉。强度按亮度加权，中间调最重、纯黑纯白几乎没有——均匀加噪
-只会显脏。
+**Grain hangs off the end, after `OutputPass`**: it is a product of film or a sensor and belongs in
+display space after tone mapping; in front of it, it would be tone mapped along with everything else.
+Its strength is weighted by luminance, heaviest in the midtones and nearly absent at pure black and
+pure white - adding noise uniformly just looks dirty.
 
-**DPR 封顶 1.5，再按帧时间自适应。** 行星着色器每帧跑两遍（颜色 + 自渲的深度图），再加 16 采样景深与
-五层 bloom：Retina 全分辨率是 3024×1424，4M 像素把 M 系列芯片也钉在 30fps（帧时间稳稳 33.3ms，
-那是垂直同步的半速）。封顶 1.5 少掉 44% 的片元；主循环再看真实帧间隔的均值，超过 22ms 持续一秒多
-就降一档（1.5 → 1.25 → 1.0），低于 13ms 持续六秒再升回去。后期都是软的，观感几乎不变。
+**The DPR is capped at 1.5 and then adapted from frame time.** The planet shader runs twice per frame
+(color plus the self-rendered depth map) on top of 16-sample depth of field and five bloom levels: a
+full Retina resolution is 3024x1424, and four megapixels pin even an M-series chip at 30fps (a frame
+time sitting exactly on 33.3ms, which is half the vsync rate). Capping at 1.5 removes 44% of the
+fragments; the main loop then watches the mean real frame interval and steps down (1.5 -> 1.25 -> 1.0)
+after a second or so above 22ms, stepping back up after six seconds below 13ms. The post chain is all
+soft, so it looks nearly identical.
 
-**bloom 阈值 1.10 高于一切漫反射表面的峰值**（冰约 1.03、云 0.90），因此只有自发光项
-参与溢出：岩浆 3.2 / 灯火 2.3 / 海面反射 1.9 / 箔片 / 内核。这比逐个压低材质亮度干净
-得多——早期版本把阈值压到 0.78，结果得反复为云和冰反推系数，压暗了又比海面还暗。
+**The bloom threshold of 1.10 is above the peak of every diffuse surface** (ice about 1.03, clouds
+0.90), so only emissive terms clip into it: magma 3.2 / city lights 2.3 / sea reflection 1.9 / the
+foil / the core. That is far cleaner than lowering each material's brightness one by one - an early
+version put the threshold at 0.78 and then had to keep back-solving coefficients for the clouds and
+ice, which once darkened were dimmer than the sea.
 
-**终结线过渡区要窄。** `smoothstep(-0.06, 0.14, ndl)`。过宽（早期是 0.48 的跨度）会在
-高反照率表面上把明暗交界拉成一大片渐变，行星边缘读起来是糊的而不是轮廓。
+**The terminator transition has to be narrow.** `smoothstep(-0.06, 0.14, ndl)`. Too wide (0.48 across,
+early on) stretches the light-dark boundary into a broad gradient over high-albedo surfaces, and the
+planet's edge reads as blurred rather than as a silhouette.
 
-**网格永不旋转，自转靠 UV 横向偏移**（贴图 `RepeatWrapping` 自动环绕，导数连续、无接缝；
-不要用 `fract()`，那会把不连续点挪到画面中间）。这样二向箔沿固定世界平面压缩才不会跟着
-转，光照也能直接用世界系法线对太阳，省掉一整套坐标系换算。
+**The mesh never rotates; spin is a horizontal UV offset** (textures are `RepeatWrapping` so they wrap
+automatically, with continuous derivatives and no seam; don't use `fract()`, which moves the
+discontinuity into the middle of the frame). That is what lets the foil compress along a fixed world
+plane without turning with it, and it lets lighting face the sun with world-space normals directly,
+skipping a whole coordinate conversion.
 
-**大气是解析式单次散射，不是球壳边缘光。** 对每条视线求它实际穿过大气层的弦长再沿途
-积分，密度随高度指数衰减，所以到外缘自然归零。早先用球壳 + fresnel，球壳的几何外边界
-就成了一层肉眼可见的「膜」——那是形状带来的，调参数救不回来。
+**The atmosphere is analytic single scattering, not a rim-lit spherical shell.** For each view ray it
+finds the chord it actually travels through the atmosphere and integrates along it, with density
+falling off exponentially with height, so it reaches zero at the outer edge naturally. The previous
+approach was a shell plus fresnel, and that shell's geometric outer boundary became a visible
+"membrane" - which came from the shape, and no amount of parameter tuning could rescue it.
 
-散射系数按量纲反推，别凭手感调：掠射路径长约 1.09、平均密度约 0.5，要让蓝端光学深度
-落在 1.5 附近（exp 内已乘 2.30），太阳方向的系数就该是 1.2 量级。设成 7.5 会把日面的
-蓝光全散掉，只剩一圈过曝白边。日落的红色是算出来的，不是调出来的——蓝光散射最强，
-穿过厚大气时先被散掉。
+Derive the scattering coefficients dimensionally rather than tuning by feel: a grazing path is about
+1.09 long at a mean density of about 0.5, and putting the blue end's optical depth near 1.5 (the
+exponent already carries a factor of 2.30) means the coefficient toward the sun should be of order
+1.2. Setting it to 7.5 scatters all the blue out of the day side and leaves a blown-out white rim.
+The red of a sunset is computed, not dialled in - blue scatters most strongly and is removed first
+when passing through thick atmosphere.
 
-大气厚度 Ra=1.14 是夸张值（地球真实约 1.016，在这个尺度下几乎看不见）。取到 1.55
-会让大气占满整个视场。薄壳积分必须加逐像素抖动，等距采样会留下同心条纹。
+The atmosphere's thickness Ra=1.14 is exaggerated (Earth's is about 1.016, essentially invisible at
+this scale). At 1.55 the atmosphere fills the entire field of view. A thin-shell integral has to be
+jittered per pixel; evenly spaced samples leave concentric banding.
 
-**温度效果全部是叠在贴图上的遮罩**，见 `PLANET_FRAG` 中依次排列的四段。温度这块最容易
-露馅的地方不是配色，是**整颗星按同一条曲线一起变**——真实的相变有前沿、有先后、有参差，
-四段各自在补这件事：
+**Every temperature effect is a mask over the texture**, in the four sections laid out in order inside
+`PLANET_FRAG`. What gives temperature away is never the palette, it is **the whole planet changing
+along one curve** - a real phase change has a front, an order and a raggedness, and each of the four
+sections restores that:
 
-**冰盖**不是一条纬线。噪声打碎冰缘；海面先冻（薄冰铺得快，陆地冰盖要靠积雪一层层堆，
-所以 `iceLine` 对水体额外下压 0.13）；干而亮的高地与荒漠辐射降温最快，也先白。海冰的
-**边缘还要碎成浮冰**：`(1-|2i-1|)` 在过渡带最大、两端归零，所以高频噪声只搅动交界那一圈，
-冰盖内部和开阔水面都不受影响；陆地不参与，积雪的边界本来就比海冰整齐。
+**Ice caps** are not a line of latitude. Noise breaks the margin up; the sea freezes first (thin ice
+spreads fast, while a land ice sheet has to be built up snowfall by snowfall, so `iceLine` pushes
+water down by an extra 0.13); and dry, bright highlands and deserts radiate heat away fastest and go
+white early. The edge of sea ice also **breaks into floes**: `(1-|2i-1|)` peaks in the transition band
+and vanishes at both ends, so the high-frequency noise only stirs the boundary ring while the interior
+of the cap and the open water are untouched; land is excluded, since a snow line is naturally tidier
+than a sea-ice edge.
 
-**荒漠化**按纬度加权。副热带是哈德里环流的下沉支，最先干；赤道雨林水汽最足，最后才垮。
-再乘一层斑块噪声，干旱前沿因此是啃出来的而不是推平的。
+**Desertification** is weighted by latitude. The subtropics are the descending branch of the Hadley
+cell and dry out first; equatorial rainforest has the most moisture and collapses last. Multiplying by
+a patch noise makes the drought front something gnawed out rather than pushed flat.
 
-**海洋蒸干**分浅深两条曲线：`boilShallow` 362→438，`boilDeep` 424→516，按近岸程度在两者
-之间插值（近岸靠对水体遮罩做四点采样判定）。**两条最终都要到 1**——早先只有一条曲线再按
-水深打折，深海盆无论多热都只干掉四成，温度拉满还剩一片蓝，那才是最假的。蒸干那一段还会
-先把云量顶上去（`setEnv` 里的 `steam`）：海水总得先变成蒸汽，才谈得上散掉。
+**Oceans boiling dry** follow two curves, shallow and deep: `boilShallow` 362->438 and `boilDeep`
+424->516, interpolated by proximity to shore (decided by sampling the water mask at four points).
+**Both have to reach 1** - it used to be one curve discounted by depth, and the deep basins then only
+ever dried out about forty percent however hot it got, leaving a patch of blue at maximum temperature,
+which was the falsest thing of all. The boiling phase also pushes cloud cover up first (`steam` in
+`setEnv`): seawater has to become vapour before it can disperse.
 
-**熔融**的裂缝指数随熔融程度下降（`mix(11.0, 3.4, melt)`）：细缝 → 宽缝 → 连片。固定指数
-下岩浆从头到尾一样粗、只是越来越亮，那不是在熔化，是在调亮度。白热色只留给接近全熔的
-那一段，给早了八百度就糊成一颗恒星。
+**Melting** lowers the fissure exponent as it progresses (`mix(11.0, 3.4, melt)`): thin cracks -> wide
+cracks -> continuous. With a fixed exponent the magma is the same width from start to finish and
+merely gets brighter, which is not melting, it is turning up the brightness. White heat is reserved
+for the stretch near total melt; given out earlier, the planet smears into a star at eight hundred
+degrees.
 
-## 调参
+## Tuning
 
-`js/civ.js` 顶部是文明模型的常数（理想温度 288K、理想气压 1atm、基准人口）。
-通讯记录的文案在 `_check()` 里，按触发条件排列。
+The top of `js/civ.js` holds the civilization model's constants (ideal temperature 288K, ideal
+pressure 1atm, baseline population). The comms log copy is in `_check()`, laid out by trigger
+condition.
 
-`js/planet.js` 的 `setEnv()` 把温度气压映射到云量、大气密度和颜色；
-`PLANET_FRAG` 里是地表配色与各种阈值（冰线、干旱度、沸腾、熔融）。
+`setEnv()` in `js/planet.js` maps temperature and pressure to cloud cover, atmospheric density and
+color; `PLANET_FRAG` holds the surface palette and the various thresholds (ice line, aridity, boiling,
+melting).
