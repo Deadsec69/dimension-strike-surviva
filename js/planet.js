@@ -1,11 +1,13 @@
-// 行星渲染 —— Three.js
+// Planet rendering - Three.js
 //
-// 美术方向：照片级写实。NASA 底图（Solar System Scope，CC BY 4.0）作基底，
-// 温度/气压的效果以程序化图层叠加其上——冰盖、荒漠化、海洋蒸干、熔融裂缝
-// 各自是一层遮罩。贴图保证质感，程序化图层保证滑块仍然有效。
+// Art direction: photoreal. A NASA base map (Solar System Scope, CC BY 4.0) underneath, with the
+// effects of temperature and pressure layered on procedurally - ice caps, desertification, oceans
+// boiling dry, molten fissures, each its own mask. The textures carry the material quality; the
+// procedural layers keep the sliders meaningful.
 //
-// 网格永不旋转：自转由 UV 偏移实现（贴图 RepeatWrapping，导数连续无接缝）。
-// 这样二向箔沿固定世界平面压缩才不会跟着转，光照也能直接用世界系法线。
+// The mesh never rotates: spin is a UV offset (RepeatWrapping textures, so derivatives stay
+// continuous and there is no seam). That way the foil compresses along a fixed world plane without
+// turning with it, and lighting can use world-space normals directly.
 
 import * as THREE from 'three';
 import { EffectComposer }   from '../vendor/jsm/postprocessing/EffectComposer.js';
@@ -14,7 +16,7 @@ import { UnrealBloomPass }  from '../vendor/jsm/postprocessing/UnrealBloomPass.j
 import { OutputPass }       from '../vendor/jsm/postprocessing/OutputPass.js';
 import { ShaderPass }       from '../vendor/jsm/postprocessing/ShaderPass.js';
 
-/* ── 噪声（仅熔融裂缝还需要） ─────────────────────────── */
+/* -- Noise (only the molten fissures still need it) ------------------- */
 
 export const NOISE = `
 vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
@@ -72,16 +74,18 @@ float fbm3(vec3 p){
 }
 `;
 
-/* ── 大气环流 ────────────────────────────────────────────
-   云不是一整块贴图在平移。真实的云层被纬向风带撕开：信风带（0~30°）吹东风，
-   云向西走；西风带（30~60°）反向，云向东走；极地东风（60~90°）又转向西，
-   且弱而不稳。相邻两带方向相反，交界处因此持续剪切——那才叫云层在动，
-   而不是在挪。
+/* -- Atmospheric circulation ------------------------------------------
+   Clouds are not one texture sliding along. Real cloud decks are torn apart by zonal wind bands:
+   the trade winds (0-30 degrees) blow east to west, so clouds move west; the westerlies (30-60)
+   reverse and clouds move east; the polar easterlies (60-90) turn west again, weak and unsteady.
+   Adjacent bands run in opposite directions, so their boundaries shear continuously - that is what
+   a cloud deck in motion looks like, as opposed to a cloud deck being moved.
 
-   云量也分带：赤道辐合带（ITCZ，实际中心约在 6°N 而不是赤道上）是最厚的一条；
-   副热带约 25° 是哈德里环流的下沉支，最薄；中纬约 46° 的风暴轴又回升。 */
+   Cloud cover is banded too: the intertropical convergence zone (whose real center sits near 6N
+   rather than on the equator) is the thickest band; the subtropics near 25 are the descending branch
+   of the Hadley cell and the thinnest; the storm track near 46 rises again. */
 const WIND = `
-float zonalWind(float s){          // s = sin(纬度)，带符号
+float zonalWind(float s){          // s = sin(latitude), signed
   float a = abs(s);
   float trade = -0.60 * (1.0 - smoothstep(0.26, 0.56, a));
   float west  =  1.00 * smoothstep(0.32, 0.60, a) * (1.0 - smoothstep(0.76, 0.94, a));
@@ -89,11 +93,13 @@ float zonalWind(float s){          // s = sin(纬度)，带符号
   return trade + west + polar;
 }
 
-/* 三条风带的权重，以及各自的经向速度。
-   关键在于：偏移必须**按带取常数**，不能随纬度连续变化。常数偏移的 UV 导数为零，
-   所以想累积多远都不会糊；而连续变化的偏移会把相邻纬度的采样点越拉越远，导数爆掉，
-   自动 mip 直接把整片云糊成灰。带与带之间靠权重混合，那一圈正好读作风切变带里的
-   湍流混合区——物理上那里本来就是两股反向气流在搅。 */
+/* The weights of the three bands and each band's zonal speed.
+   The key point: the offset must be *constant within a band* and must not vary continuously with
+   latitude. A constant offset has zero UV derivative, so it can accumulate arbitrarily far without
+   blurring; a continuously varying one drags neighbouring latitudes' sample points further and
+   further apart, the derivative explodes, and automatic mip selection smears the whole deck to grey.
+   Bands are blended by weight, and that blend band reads exactly as the turbulent mixing zone inside
+   a wind shear layer - which is physically what is there: two opposing flows stirring. */
 vec3 bandWeights(float s){
   float a = abs(s);
   float wT = 1.0 - smoothstep(0.38, 0.52, a);
@@ -102,7 +108,7 @@ vec3 bandWeights(float s){
   return vec3(wT, wW, wP) / (wT + wW + wP + 1e-4);
 }
 
-// 信风带向西、西风带向东、极地东风再向西
+// Trades blow west, westerlies east, polar easterlies west again
 const vec3 BAND_SPEED = vec3(-0.60, 1.00, -0.32);
 
 vec3 rotY(vec3 v, float ang){
@@ -119,55 +125,59 @@ float cloudBand(float s){
 }
 `;
 
-/* ── 顶点形变（二向箔压平 + 引力挤压） ────────────────── */
+/* -- Vertex deformation (foil flattening + gravitational crush) ------- */
 
 const DEFORM = `
-uniform float uFoilX;    // 二向箔扫掠位置（-1.9 → +1.9）
-uniform float uShatter;  // 挤压进度 0 → 1
-uniform float uSpread;   // 压平后铺开系数
-uniform vec2  uFracWin;  // 断裂时间窗（起点, 离散量）：地壳先裂，地幔后裂
-uniform float uBurstK;   // 飞散速度倍率：越往里越致密，飞得越慢
+uniform float uFoilX;    // foil sweep position (-1.9 -> +1.9)
+uniform float uShatter;  // crush progress 0 -> 1
+uniform float uSpread;   // spread factor once flattened
+uniform vec2  uFracWin;  // fracture time window (start, spread): the crust cracks first, the mantle later
+uniform float uBurstK;   // scatter speed multiplier: the deeper in, the denser, and the slower it flies
 
 float flatAmount(vec3 p){
   return smoothstep(uFoilX + 0.30, uFoilX - 0.30, p.x);
 }
 
-// 仅压平。云层与大气用这个——它们不碎裂，只随行星摊平/消散。
+// Flattening only. The clouds and atmosphere use this - they don't shatter, they just flatten and disperse with the planet.
 vec3 flatten(vec3 p, out float outFlat){
   float f = flatAmount(p);
   outFlat = f;
   float spread = smoothstep(0.12, 1.0, f) * uSpread;
   p.xz *= 1.0 + spread * 0.52;
-  p.y  *= 1.0 - f * 0.98;   // 残留 2% 厚度，避免正反面 z-fighting
+  p.y  *= 1.0 - f * 0.98;   // leave 2% thickness to avoid z-fighting between the two faces
   return p;
 }
 
-// 压平 + 碎裂。只有行星本体走这条。
+// Flatten plus shatter. Only the planet body takes this path.
 //
-// 碎裂走「冲量 + 积分」，不是「位置 = f(进度)」。早先位移由 smoothstep 驱动，
-// 导数在两端归零——所有碎片同时起步、同时刹停，那是整个效果里最假的一处。
-// 断裂是瞬时冲量；此后真空中没有阻力，速度只被残核引力削减，于是慢的会落回、
-// 快的一去不返。这条长尾是免费的，只要别把位移直接插值。
+// Shattering uses impulse-and-integrate, not position = f(progress). Displacement used to be driven
+// by a smoothstep, whose derivative goes to zero at both ends - every fragment started and stopped
+// at the same instant, the falsest thing in the whole effect.
+// A fracture is an instantaneous impulse; after it there is no drag in vacuum, and speed is only
+// reduced by the remnant core's gravity, so slow pieces fall back and fast ones never return.
+// That long tail is free, as long as the displacement itself is never interpolated.
 vec3 rotAxis(vec3 v, vec3 axis, float c, float s){
   return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
 }
 
 vec3 deform(vec3 p, vec3 cen, vec3 dir, vec3 axis, float rnd, float mass,
             out float outFlat, out vec3 outNrm, out float outBurst){
-  outNrm = normalize(p);     // 未形变时，球面法线就是方向本身
+  outNrm = normalize(p);     // undeformed, the sphere normal is the direction itself
   outBurst = 0.0;
   p = flatten(p, outFlat);
 
   if(uShatter > 0.0){
     float s = uShatter;
-    // rnd 已被飞散速度占用。再要一个独立随机量，否则「晚断裂的必定飞得慢」
+    // rnd is already taken by the scatter speed. This needs an independent random value, otherwise
+    // "fractured late" would always imply "flies slowly"
     float r2 = fract(rnd * 43758.5453);
 
-    // 裂纹不会同时到达每一处：每片有自己的断裂时刻，断裂前随整体塌缩、
-    // 断裂后停止压缩。两者错开，塌缩末期的表面因此是碎的而不是光滑的。
+    // The crack does not reach everywhere at once: each fragment has its own fracture time, collapsing
+    // with the whole before it and stopping once it breaks. Staggering the two is what makes the
+    // surface broken rather than smooth at the end of the collapse.
     float tFrac = uFracWin.x + r2 * uFracWin.y;
     float cs = min(s, tFrac);
-    float squeeze = pow(cs / (uFracWin.x + uFracWin.y), 2.4) * 0.26;   // 幂次：越塌缩引力越强
+    float squeeze = pow(cs / (uFracWin.x + uFracWin.y), 2.4) * 0.26;   // the exponent: the further it collapses the stronger gravity gets
     p   *= 1.0 - squeeze;
     cen *= 1.0 - squeeze;
 
@@ -175,15 +185,17 @@ vec3 deform(vec3 p, vec3 cen, vec3 dir, vec3 axis, float rnd, float mass,
     if(tb > 0.0){
       outBurst = tb;
       vec3 local = p - cen;
-      // 绕独立随机轴匀速翻滚——真空里没有东西让它慢下来。若沿用飞散方向
-      // 作转轴，碎片只会绕飞行轴自旋、始终正对镜头，看起来是一地彩纸屑。
-      // 大块转得慢：同样的冲量矩，转动惯量大就是转不动。
+      // Tumbling at a constant rate around an independent random axis - nothing in vacuum slows it
+      // down. Reusing the scatter direction as the axis would spin each fragment about its flight
+      // axis, keeping it face-on to the camera: a floor covered in confetti.
+      // Bigger pieces turn slower: the same impulse torque against a larger moment of inertia.
       float ang = (rnd * 2.0 - 1.0) * 17.0 * mix(1.55, 0.40, mass) * tb;
       float c = cos(ang), si = sin(ang);
       local  = rotAxis(local,  axis, c, si);
-      outNrm = rotAxis(outNrm, axis, c, si);   // 法线必须跟着碎片一起转
-      // 初速离散：rnd 三次方拉长尾，再按质量分配——同一份冲量，小块飞得快。
-      // 二次项是残核引力，慢碎片会被拉回来。
+      outNrm = rotAxis(outNrm, axis, c, si);   // the normal has to turn with its fragment
+      // Spread of initial speeds: rnd cubed lengthens the tail, then it is divided by mass - the same
+      // impulse sends a small piece faster.
+      // The quadratic term is the remnant core's gravity, which pulls slow fragments back.
       float v0   = (0.42 + rnd * rnd * rnd * 3.4) * mix(1.50, 0.52, mass) * uBurstK;
       float disp = max(0.0, v0 * tb - 0.34 * tb * tb);
       p = cen + local + dir * disp;
@@ -193,7 +205,7 @@ vec3 deform(vec3 p, vec3 cen, vec3 dir, vec3 axis, float rnd, float mass,
 }
 `;
 
-/* ── 行星本体 ────────────────────────────────────────── */
+/* -- Planet body ------------------------------------------------------ */
 
 const PLANET_VERT = `
 attribute vec3 aCentroid;
@@ -213,14 +225,14 @@ ${DEFORM}
 
 void main(){
   vUv   = uv;
-  vSurf = normalize(position);   // 未形变方向：贴图与地表属性都按它取，碎裂时才不会滑移
+  vSurf = normalize(position);   // undeformed direction: textures and surface properties are all sampled by it, so nothing slides during the shatter
 
   float f, burst;
   vec3 nrm;
   vec3 p = deform(position, aCentroid, aDir, aAxis, aRnd, aMass, f, nrm, burst);
   vFlat  = f;
-  vNrm   = nrm;                  // 受光用它：翻滚的碎片必须跟着变明暗
-  vPos   = p;                    // 网格无变换，物体空间即世界空间
+  vNrm   = nrm;                  // used for lighting: a tumbling fragment has to change shade as it turns
+  vPos   = p;                    // the mesh has no transform, so object space is world space
   vBurst = burst;
 
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -230,26 +242,27 @@ void main(){
 const PLANET_FRAG = `
 precision highp float;
 
-uniform sampler2D uDay;      // NASA 日面色图
-uniform sampler2D uNight;    // NASA 夜间灯光
-uniform sampler2D uSpec;     // 水体遮罩（白 = 水）
-uniform sampler2D uCloudTex; // 用于地表云影
+uniform sampler2D uDay;      // NASA daytime color map
+uniform sampler2D uNight;    // NASA night lights
+uniform sampler2D uSpec;     // water mask (white = water)
+uniform sampler2D uCloudTex; // used for cloud shadows on the surface
 
-// 四路温度，同一个目标值、四种跟随速度。滑块动的是注入的能量，
-// 各子系统按自己的热容响应：冰盖最慢，岩石最快。常数见 planet.js 的 ENV_TAU。
-uniform vec4  uTempLag;      // x=冰盖 y=植被 z=海洋 w=岩石，单位 K
+// Four temperature channels: one target value, four following speeds. The slider changes the energy
+// being injected, and each subsystem responds with its own heat capacity - ice is slowest, rock
+// fastest. The constants are ENV_TAU in planet.js.
+uniform vec4  uTempLag;      // x=ice y=vegetation z=ocean w=rock, in K
 uniform float uPop;          // 0..1
-uniform float uSpinUV;       // 自转 = UV 横向偏移
+uniform float uSpinUV;       // spin = horizontal UV offset
 uniform float uShatter;
-uniform float uCover;        // 云量
-uniform float uWind;         // 纬向风累计位移，与云层共用
-uniform float uCrustT;       // 岩石圈温度：比冰盖更慢的一条通道
-uniform float uCharge;       // 引力蓄力 0..1：地壳先受应力，裂缝先亮
-uniform vec4  uImpacts[8];   // 撞击槽：xyz 去自转后的方向，w 年龄（秒，负 = 空）
+uniform float uCover;        // cloud cover
+uniform float uWind;         // accumulated zonal displacement, shared with the cloud layer
+uniform float uCrustT;       // lithosphere temperature: a channel even slower than the ice
+uniform float uCharge;       // gravitational charge 0..1: the crust is stressed first, and the fissures light first
+uniform vec4  uImpacts[8];   // impact slots: xyz is the de-spun direction, w is age in seconds (negative = empty)
 uniform float uImpactSize[8];
-uniform float uFire;         // 当前火灾强度（由热冲击驱动）
-uniform float uBurn;         // 累计过火面积
-uniform float uCoreGlow;     // 内核亮度，用于照亮碎片内侧
+uniform float uFire;         // current fire intensity (driven by thermal shock)
+uniform float uBurn;         // cumulative burned area
+uniform float uCoreGlow;     // core brightness, used to light the inner faces of fragments
 uniform vec3  uLightDir;
 
 varying vec2 vUv;
@@ -262,10 +275,12 @@ varying float vBurst;
 ${NOISE}
 ${WIND}
 
-/* 冰量。抽成函数是为了能用第二条更慢的温度通道再算一遍：两者之差就是
-   「冰刚刚退走的地方」。冰缘不是一条纬线——噪声打碎边界；海面先冻（薄冰
-   铺得快，陆地冰盖要靠积雪一层层堆，故对水体额外下压）；干而亮的高地与
-   荒漠辐射降温最快，也先白。 */
+/* Ice coverage. Factored into a function so it can be evaluated again on a second, slower
+   temperature channel: the difference between the two is exactly "where the ice has just retreated
+   from". The ice margin is not a line of latitude - noise breaks the boundary up. The sea freezes
+   first (thin ice spreads fast, while a land ice sheet has to be built up snowfall by snowfall, so
+   water gets an extra push), and dry bright highlands and deserts radiate heat away fastest, so they
+   go white early too. */
 float iceAmount(float T, float lat, float water, float alt, float nLow, float nMid){
   float freeze = smoothstep(296.0, 214.0, T);
   float line = mix(1.16, -0.12, freeze)
@@ -275,80 +290,89 @@ float iceAmount(float T, float lat, float water, float alt, float nLow, float nM
 }
 
 void main(){
-  vec2 uv = vec2(vUv.x + uSpinUV, vUv.y);   // RepeatWrapping 负责环绕
-  // n0 是地表属性的坐标（冰按纬度、岩浆按噪声），不随碎片翻滚；
-  // N 是受光法线，必须跟着翻滚——这两者分开是碎片能「活」起来的前提。
+  vec2 uv = vec2(vUv.x + uSpinUV, vUv.y);   // RepeatWrapping handles the wrap
+  // n0 is the coordinate for surface properties (ice by latitude, lava by noise) and does not tumble
+  // with a fragment; N is the shading normal and must tumble. Keeping them separate is what lets the
+  // fragments feel alive.
   vec3 n0 = normalize(vSurf);
   vec3 N  = normalize(vNrm);
-  if(!gl_FrontFacing) N = -N;               // 断面朝外时法线要翻过来
+  if(!gl_FrontFacing) N = -N;               // a fracture face pointing outward needs its normal flipped
   float lat = abs(n0.y);
 
   vec3  base   = texture2D(uDay, uv).rgb;
   float water  = texture2D(uSpec, uv).r;
   float relief = dot(base, vec3(0.299, 0.587, 0.114));
 
-  // 两张共用的噪声场：低频定斑块，中频打碎边缘。
-  // 温度效果最容易露馅的地方不是配色，是「整颗星按同一条曲线一起变」——
-  // 真实的相变有前沿、有先后、有参差，下面四段都是在给它们补这个。
+  // Two shared noise fields: low frequency places the patches, mid frequency breaks up the edges.
+  // What gives the temperature effects away is never the palette, it is the whole planet changing
+  // along one curve - a real phase change has a front, an order, a raggedness. The four sections
+  // below are all about restoring that.
   float nLow = fbm3(n0 * 3.4) * 0.5 + 0.5;
   float nMid = fbm3(n0 * 6.1) * 0.5 + 0.5;
 
-  // ── 冰盖：低温时从两极推进
+  // -- Ice caps: advancing from the poles as it cools
   float alt = clamp((relief - 0.44) * 2.2, 0.0, 1.0) * (1.0 - water);
   float ice = iceAmount(uTempLag.x, lat, water, alt, nLow, nMid);
-  // 海冰的边缘是碎的。只在过渡带里掺高频噪声——(1-|2i-1|) 在 i=0.5 处最大、
-  // 两端归零，所以冰盖内部和开阔水面都不受影响，碎的只有交界那一圈浮冰。
-  // 陆地不参与：积雪的边界本来就比海冰整齐。
+  // The edge of sea ice is broken. High-frequency noise is mixed in only within the transition band -
+  // (1-|2i-1|) peaks at i=0.5 and vanishes at both ends, so the interior of the cap and the open water
+  // are untouched, and only the ring of floes at the boundary breaks up.
+  // Land is excluded: a snow line is naturally tidier than a sea-ice edge.
   float floe = snoise(n0 * 24.0) * 0.5 + 0.5;
   ice = clamp(ice + (floe - 0.5) * 1.15 * (1.0 - abs(ice * 2.0 - 1.0)) * water, 0.0, 1.0);
-  // 海冰平坦偏青灰，陆雪亮而有起伏。反照率压在 bloom 阈值（1.10）之下，
-  // 否则整颗雪球一起溢出成白板。
+  // Sea ice is flat and slightly blue-grey; land snow is brighter and has relief. Albedo is held below
+  // the bloom threshold (1.10), or the entire snowball would blow out into a white sheet at once.
   vec3  seaIce  = vec3(0.612, 0.664, 0.716);
   vec3  snow    = vec3(0.716, 0.742, 0.776) * (0.88 + nMid * 0.16);
   vec3  iceCol  = mix(snow, seaIce, water);
-  iceCol *= 0.86 + relief * 0.42;   // 底图的明暗透一点上来，雪原下仍辨得出山脉
+  iceCol *= 0.86 + relief * 0.42;   // let a little of the base map's shading through: mountains are still readable under the snowfield
   base = mix(base, iceCol, ice * 0.94);
 
-  // ── 荒漠化：升温后植被褪成沙色
+  // -- Desertification: vegetation fading to sand as it warms
   float veg = clamp((base.g - (base.r + base.b) * 0.5) * 4.2, 0.0, 1.0);
-  // 不是全球一起褪。副热带是哈德里环流的下沉支，最先干；赤道雨林水汽最足，
-  // 最后才垮。再乘一层斑块噪声，干旱前沿因此是啃出来的，不是推平的。
+  // Not everywhere at once. The subtropics are the descending branch of the Hadley cell and dry out
+  // first; equatorial rainforest has the most moisture and collapses last. Multiplying by a patch
+  // noise makes the drought front something gnawed out rather than pushed flat.
   float belt = smoothstep(0.10, 0.40, lat) * (1.0 - smoothstep(0.60, 0.94, lat));
   float arid = smoothstep(292.0, 402.0, uTempLag.y);
   arid = clamp(arid * (0.42 + 0.88 * belt) * (0.52 + 0.80 * nLow), 0.0, 1.0);
   vec3 sand = mix(vec3(0.470, 0.392, 0.286), vec3(0.624, 0.498, 0.322), nMid);
   base = mix(base, sand, arid * veg * (1.0 - water) * 0.92);
 
-  // ── 火灾：热冲击打在还没来得及适应的植被上
-  // 强度由 uFire 给（目标温度与植被通道的落差 × 可燃温区），慢慢拧滑块不会着火，
-  // 猛地拉上去才会——烧起来的是「跟不上」的那部分生物圈。
+  // -- Fires: thermal shock hitting vegetation that has had no time to adapt.
+  // Intensity comes from uFire (the gap between the target temperature and the vegetation channel,
+  // times a flammable temperature band), so easing the slider along never starts a fire and yanking
+  // it up does - what burns is the part of the biosphere that could not keep up.
   float land = (1.0 - water) * (1.0 - ice);
   vec3  fq   = n0 * 7.4 + vec3(0.0, uWind * 3.2, 0.0);
-  // 火头是锋面不是散点。取噪声的零交叉（脊线）才得到连续的火线；
-  // 直接对噪声取高次幂只会得到稀疏的孤立亮点，暗到看不见。
+  // A fire front is a front, not scattered dots. Taking the zero crossing of the noise (its ridge)
+  // is what gives a continuous fire line; raising the noise to a high power directly only yields
+  // sparse isolated points, too dim to see.
   float fr    = 1.0 - abs(fbm3(fq)) * 2.6;
   float front = pow(clamp(fr, 0.0, 1.0), 4.0);
   float fire  = uFire * veg * land * front;
 
-  // 过火痕迹：焦黑的斑块，随累计过火面积扩张，植被恢复后再慢慢褪去。
-  // 复用低频噪声场——烧过的疤本来就是大片的。
+  // Burn scars: charred patches that spread with the cumulative burned area and fade slowly once the
+  // vegetation recovers. The low-frequency noise field is reused - a burn scar is a large thing anyway.
   float scar = smoothstep(1.02 - uBurn * 1.18, 1.04 - uBurn * 1.18, nLow) * veg * land;
   base = mix(base, vec3(0.074, 0.060, 0.050), scar * 0.92);
 
-  // 烟往下风方向拖：取上风处的火强度，就得到「这里的烟是那边烧出来的」。
-  // east 是当地的向东切向；zonalWind 为负（信风带）时上风在东侧，符号自动反过来。
+  // Smoke drags downwind: sampling the fire intensity upwind gives "the smoke here was made over there".
+  // east is the local eastward tangent; when zonalWind is negative (the trades) upwind is to the east
+  // and the sign flips on its own.
   vec3  east   = normalize(vec3(-n0.z, 0.0, n0.x) + vec3(1e-5));
   vec3  upwind = fq - east * (zonalWind(n0.y) * 1.15);
   float sr     = 1.0 - abs(fbm3(upwind)) * 2.6;
   float smoke  = pow(clamp(sr, 0.0, 1.0), 2.2) * uFire * land;
   base = mix(base, vec3(0.300, 0.266, 0.232), clamp(smoke * 1.15, 0.0, 0.78));
 
-  // ── 海洋蒸干：先退浅海，再退深海
-  // 近岸判定靠对水体遮罩做四点采样，邻域里出现陆地就是浅水。均匀地把整片海
-  // 压暗，读起来是海水在褪色；先露大陆架再露海盆，才是海在退去。
-  // 浅海和深海各走一条曲线：浅的先干，深的晚干，但两条最终都会到 1。
-  // 早先只有一条曲线再按水深打折，结果深海盆无论多热都只干掉四成——
-  // 温度拉满还剩一片蓝，那才是最假的。
+  // -- Oceans boiling dry: the shallows go first, then the basins.
+  // Proximity to shore is decided by sampling the water mask at four points; land in the neighbourhood
+  // means shallow water. Darkening the whole ocean uniformly reads as seawater changing color; the
+  // shelves surfacing before the basins is what reads as the sea retreating.
+  // Shallow and deep follow separate curves: shallow dries first, deep later, and both eventually
+  // reach 1. It used to be one curve discounted by depth, and the deep basins then only ever dried
+  // out about forty percent however hot it got - a patch of blue left at maximum temperature, which
+  // was the falsest thing of all.
   float boilShallow = smoothstep(362.0, 438.0, uTempLag.z);
   float boilDeep    = smoothstep(424.0, 516.0, uTempLag.z);
   float e = 0.010;
@@ -356,98 +380,114 @@ void main(){
              + texture2D(uSpec, uv + vec2(-e, 0.0)).r
              + texture2D(uSpec, uv + vec2(0.0,  e)).r
              + texture2D(uSpec, uv + vec2(0.0, -e)).r;
-  float shelf = 1.0 - near * 0.25;                       // 0 = 深海盆，1 = 岸边
+  float shelf = 1.0 - near * 0.25;                       // 0 = deep basin, 1 = shoreline
   float dry   = mix(boilDeep, boilShallow, shelf);
   vec3  bed   = mix(vec3(0.088, 0.076, 0.068), vec3(0.186, 0.158, 0.132),
                     shelf * (0.45 + 0.55 * nMid));
   base = mix(base, bed, water * dry);
 
-  // ── 撞击（生存模式）。一次循环算出三组遮罩：疤要在 base 进光照之前压进去，
-  // 热与冲击环要等 emissive 声明之后再加。方向按当前自转转回来（存的是去自转的方向，
-  // 见 planet.js 的 IMPACT_SGN 推导）：n0 不随贴图走，直接存世界方向光斑会从地面滑开。
+  // -- Impacts (survival mode). One loop computes three masks: the scar has to be pressed into base
+  // before lighting, while the heat and the shock ring wait until after emissive is declared.
+  // The direction is rotated back by the current spin (what is stored is the de-spun direction; see
+  // the IMPACT_SGN derivation in planet.js): n0 does not follow the texture, so storing a world
+  // direction directly would make the flash slide across the ground.
   float impScar = 0.0, impHot = 0.0, impRing = 0.0;
   {
     float sa = uSpinUV * 6.2831853;
     float cs = cos(sa), sn = sin(sa);
     for(int i = 0; i < 8; i++){
       vec4 im = uImpacts[i];
-      if(im.w >= 0.0){                                        // 不用 continue：老驱动对它不友好
+      if(im.w >= 0.0){                                        // no continue: old drivers dislike it
         vec3  d   = vec3(im.x * cs - im.z * sn, im.y, im.x * sn + im.z * cs);   // rotY(im.xyz, sa)
-        float ang = sqrt(max(0.0, 2.0 - 2.0 * dot(n0, d)));  // 弦长 ≈ 角距，省一次 acos
-        float rc  = uImpactSize[i] * 0.9;                     // 坑的角半径 ≈ 石头半径（弧度）：r=0.12 的石头砸出约 6° 的坑
+        float ang = sqrt(max(0.0, 2.0 - 2.0 * dot(n0, d)));  // chord length is close enough to angular distance, saving an acos
+        float rc  = uImpactSize[i] * 0.9;                     // the crater's angular radius is about the rock's radius in radians: an r=0.12 rock leaves a crater about 6 degrees across
         float age = im.w;
-        float a2  = ang + (nMid - 0.5) * rc * 0.7;            // 边缘用中频噪声啃碎：坑不是圆规画的
+        float a2  = ang + (nMid - 0.5) * rc * 0.7;            // the rim is gnawed by mid-frequency noise: a crater is not drawn with a compass
         float spot = 1.0 - smoothstep(rc * 0.55, rc * 1.35, a2);
-        // 闪光（0.15s）+ 余温（2.5s）+ 暗红余烬（9s）：三个时标叠起来才像「砸下去然后凉掉」
+        // Flash (0.15s) + residual heat (2.5s) + dark red embers (9s): only these three timescales stacked read as "struck, then cooling"
         impHot += spot * (1.6 * exp(-age / 0.15) + exp(-age / 2.5) + 0.35 * exp(-age / 9.0));
-        float rr = rc + age * 0.10;                           // 冲击环向外走、变宽、变淡：一秒内走完，别走成半个球的粉圈
+        float rr = rc + age * 0.10;                           // the shock ring travels out, widening and fading: done within a second, not expanding into a ring half the planet across
         impRing += (1.0 - smoothstep(0.0, 0.025 + age * 0.02, abs(a2 - rr))) * exp(-age / 0.6);
-        impScar = max(impScar, spot * exp(-age / 60.0));      // 疤一分钟里慢慢被尘埃盖掉
+        impScar = max(impScar, spot * exp(-age / 60.0));      // the scar is slowly covered by dust over a minute
       }
     }
   }
-  // 疤只留在陆地和干涸的海床上：水面会合拢
+  // Scars only remain on land and on dried-out sea floor: water closes over them
   base = mix(base, vec3(0.050, 0.038, 0.032), impScar * 0.88 * (1.0 - water * (1.0 - dry)));
 
-  // ── 熔融：裂缝先出现，再变宽，最后连成岩浆海
+  // -- Melting: fissures appear, then widen, then merge into a magma sea
   float melt  = smoothstep(620.0, 900.0, uTempLag.w);
   float rn    = fbm3(n0 * 3.1);
   float ridge = 1.0 - abs(rn) * 1.7;
-  // 指数随熔融程度下降：细缝 → 宽缝 → 连片。固定指数下岩浆从头到尾一样粗，
-  // 只是越来越亮——那不是在熔化，是在调亮度。
+  // The exponent falls as melting progresses: thin cracks -> wide cracks -> continuous. With a fixed
+  // exponent the magma is the same width from start to finish and merely gets brighter, which is not
+  // melting, it is turning up the brightness.
   float cracks = pow(clamp(ridge, 0.0, 1.0), mix(11.0, 3.4, melt));
   vec3  magma  = mix(vec3(0.120,0.024,0.010), vec3(1.000,0.398,0.098), cracks);
-  // 白热只留给真正接近全熔的那一段。给早了，八百度就糊成一颗恒星。
+  // White heat is reserved for the stretch that is genuinely near total melt. Given out earlier, the planet smears into a star at eight hundred degrees.
   magma = mix(magma, vec3(1.000, 0.664, 0.302), cracks * smoothstep(0.80, 1.0, melt));
   base = mix(base, magma * 0.30, melt);
-  vec3 emissive = magma * cracks * melt * 3.2;      // >1 交给 bloom
+  vec3 emissive = magma * cracks * melt * 3.2;      // above 1 this goes to bloom
 
-  // ── 地壳活动：熔融之前，热应力先把地壳撕开细缝；冰盖退走的地方另有一条通路。
-  // 冰卸载 → 上地壳回弹减压 → 减压熔融。冰岛在末次冰消后喷发速率高出今日
-  // 30~50 倍，持续千年以上；这里用「岩石圈通道比冰盖通道慢」来定位冰缘退到过
-  // 哪里：两条通道算出的冰量之差，就是刚刚卸载的那一圈。
+  // -- Crustal activity: before melting, thermal stress tears thin fissures in the crust, and where the
+  // ice has retreated there is a second pathway.
+  // Ice unloading -> upper crust rebounds and depressurizes -> decompression melting. After the last
+  // deglaciation Iceland erupted at 30-50 times today's rate for over a thousand years. Here, the
+  // lithosphere channel lagging behind the ice channel is what locates where the ice margin has been:
+  // the difference between the ice computed on the two channels is exactly the ring just unloaded.
   float iceWas = iceAmount(uCrustT, lat, water, alt, nLow, nMid);
   float freed  = clamp(iceWas - ice, 0.0, 1.0);
   float rift   = clamp(smoothstep(455.0, 690.0, uTempLag.w) * (1.0 - melt) + freed * 0.55, 0.0, 1.0);
-  // 裂缝要另取一条窄得多的脊线。ridge 的系数 1.7 是给岩浆海调的，宽得几乎处处为正，
-  // 再高的指数也压不住——同一个噪声值换个系数重算才对。
+  // The fissures need their own, much narrower ridge. The factor 1.7 in ridge was tuned for the magma
+  // sea and is so wide it is positive almost everywhere; no exponent can hold that back - the same
+  // noise value has to be re-evaluated with a different factor.
   float fissure = pow(clamp(1.0 - abs(rn) * 10.0, 0.0, 1.0), 2.0);
-  // 火山活动是分省的，不是沿着每一条缝均匀开口；海面下也有，但看不到那么亮
+  // Volcanism comes in provinces rather than opening evenly along every crack; it happens under the sea too, just never that bright
   fissure *= smoothstep(0.50, 0.86, nLow) * (1.0 - water * 0.62);
   emissive += vec3(1.00, 0.30, 0.05) * fissure * rift * 3.6;
 
-  // 引力蓄力：外力撕的是整片地壳，不分火山省，也不管有没有熔融——所以不并进 rift
-  // （那条被 (1-melt) 和分省遮罩卡着，并进去会只在几个省亮、熔融行星上干脆不亮）。
-  // 取平方：辉光在后半程才起来，而震动从一开始就在涨，两段递进。
-  // 这条脊线没有分省遮罩，比 rift 那条密得多，系数要压得远低于 3.6：1.2 时蓄满才刚过 bloom 阈值，
-  // 缝是亮线而不是白斑——取到 2.4 整片大陆都溢成白，把地表糊掉，那正是 README 里警告过的曝光。
+  // Gravitational charge: the external force tears at the whole crust, regardless of province and
+  // regardless of melting - which is why it is not folded into rift (that one is held back by (1-melt)
+  // and the province mask, so folding it in would light only a few provinces and nothing at all on a
+  // molten planet).
+  // Squared: the glow only arrives in the second half while the shaking has been rising from the
+  // start, giving two stages rather than one.
+  // This ridge has no province mask and is far denser than the rift one, so its factor has to sit well
+  // below 3.6: at 1.2 a full charge only just crosses the bloom threshold and the fissures read as
+  // bright lines rather than white blobs. At 2.4 whole continents blow out to white and the surface
+  // is smeared away - exactly the over-exposure the README warns about.
   float fissureAll = pow(clamp(1.0 - abs(rn) * 10.0, 0.0, 1.0), 3.0);
   emissive += vec3(1.00, 0.30, 0.05) * fissureAll * (1.0 - water * 0.85) * uCharge * uCharge * 1.2;
 
   emissive += vec3(1.00, 0.34, 0.06) * fire * 3.0;
 
-  // 撞击辉光。系数 0.9：落地那半秒热斑刚过 bloom 阈值（闪一下），之后退成不溢出的暗红余温——
-  // 取 3.2 的话每个坑都是一整块白斑，把半颗星糊掉。冲击环压在阈值下，贴着地面走
+  // Impact glow. The 0.9 factor: for the half second after landing the hot spot just crosses the bloom
+  // threshold (a flash), then falls back to a dark red afterglow that doesn't clip - at 3.2 every
+  // crater is a solid white blob smearing half the planet. The shock ring stays under the threshold
+  // and hugs the ground.
   emissive += vec3(1.00, 0.52, 0.20) * impHot  * 0.9 * (0.6 + 0.8 * nMid);
   emissive += vec3(1.00, 0.36, 0.10) * impRing * 0.35;
 
-  float wet = water * (1.0 - dry) * (1.0 - ice);    // 当前仍是液态水的部分
+  float wet = water * (1.0 - dry) * (1.0 - ice);    // the part that is still liquid water
 
-  // ── 表面起伏。这一层是「整颗星在变」和「贴了一层图」的分界线：
-  // 只改反照率，光照对每种材质一视同仁，读起来必然是贴纸；改法线，明暗交界
-  // 处才会长出雪脊、沙丘和熔岩的坡面，材质才立得住。
+  // -- Surface relief. This layer is the line between "the whole planet is changing" and "a picture has
+  // been pasted on": change only the albedo and the light treats every material identically, which
+  // always reads as a sticker; change the normal and snow ridges, dunes and lava slopes grow out of
+  // the terminator, and the materials hold up.
   vec3  Tg = normalize(cross(vec3(0.0, 1.0, 0.0), n0) + vec3(1e-4));
   vec3  Bg = cross(n0, Tg);
 
-  // 基础地形直接对底图取梯度：那是真实影像，山脉走向本来就在里面，
-  // 比拿噪声凭空捏一层可信得多——噪声铺满大陆只会变成砂纸。
+  // Base terrain takes its gradient straight from the base map: that is real imagery, the mountain
+  // ranges are already in it, and it is far more convincing than inventing a layer out of noise -
+  // noise spread over a continent just turns it into sandpaper.
   float eT = 0.0026;
   float lu = dot(texture2D(uDay, uv + vec2(eT, 0.0)).rgb, vec3(0.299, 0.587, 0.114));
   float lv = dot(texture2D(uDay, uv + vec2(0.0, eT)).rgb, vec3(0.299, 0.587, 0.114));
   vec2  gTex = vec2(lu - relief, lv - relief) * (1.0 - water * (1.0 - dry)) * 7.0;
 
-  // 程序化那层只在材质真的换掉之后才出场：雪脊粗而缓，沙丘与熔岩坡细而密。
-  // 288K 的地球因此几乎只有底图自己的起伏，不会平白多一层噪点。
+  // The procedural layer only appears once the material has genuinely changed: snow ridges are coarse
+  // and gentle, dunes and lava slopes fine and dense. A 288K Earth therefore has essentially only the
+  // base map's own relief, with no gratuitous layer of noise on top.
   float procA = max(max(ice, arid * 0.70), melt * 0.85);
   float bumpK = mix(20.0, 5.2, ice);
   float eB = 0.030;
@@ -458,14 +498,15 @@ void main(){
 
   N = normalize(N - Tg * (gTex.x + gPro.x) - Bg * (gTex.y + gPro.y));
 
-  // ── 光照。网格不转，所以世界系法线可直接对太阳。
+  // -- Lighting. The mesh never rotates, so world-space normals can face the sun directly.
   vec3 L = normalize(uLightDir);
   float ndl = dot(N, L);
   float day = smoothstep(-0.06, 0.14, ndl);
 
-  // 云影：沿光方向在 UV 上略偏移采样同一张云图。**分带偏移必须和云层完全一致**，
-  // 否则影子会从云底下滑出去。生消那一层略去不算——影子本来就是软的，
-  // 为它再算三次噪声不划算。
+  // Cloud shadows: sample the same cloud texture at a small UV offset along the light direction.
+  // *The banded offset must match the cloud layer exactly*, or the shadow slides out from under its
+  // cloud. The formation/dissipation layer is left out - a shadow is soft anyway, and three more
+  // noise evaluations for it are not worth it.
   vec3  wB = bandWeights(n0.y);
   vec3  oB = BAND_SPEED * uWind;
   vec2  sB = vec2(uv.x + 0.008, uv.y - 0.004);
@@ -475,110 +516,117 @@ void main(){
   float coverHere = clamp(uCover * (1.0 + 0.30 * cloudBand(n0.y)), 0.0, 1.4);
   day *= 1.0 - smoothstep(0.30, 0.82, cShadow) * coverHere * 0.42;
 
-  // 终结线染色：掠射的光穿过更厚的大气，偏红
+  // Terminator tint: grazing light travels through more atmosphere and goes red
   vec3 warm = mix(vec3(1.0, 0.98, 0.95), vec3(1.0, 0.60, 0.34),
                   smoothstep(0.38, 0.0, ndl) * smoothstep(-0.14, 0.10, ndl));
 
   vec3 lit = base * day * warm * 1.22;
-  lit += base * vec3(0.034, 0.044, 0.066) * (1.0 - day);   // 夜面天光，别压死成纯黑
+  lit += base * vec3(0.034, 0.044, 0.066) * (1.0 - day);   // skylight on the night side, so it isn't crushed to pure black
 
-  // ── 材质对光的反应。只有反照率不同的话，冰、沙、岩浆在光下是同一种东西，
-  // 那正是「贴了一层」的来源。下面三项让它们各自有各自的光学行为。
+  // -- How each material responds to light. With only the albedo differing, ice, sand and magma are the
+  // same substance under the light, and that is precisely where "a layer pasted on" comes from. The
+  // three terms below give each of them its own optical behaviour.
 
   vec3 V = normalize(cameraPosition - vPos);
   vec3 H = normalize(L + V);
 
-  // 水：极窄的镜面反射点
+  // Water: a very tight specular highlight
   float spec = pow(max(dot(N, H), 0.0), 1100.0) * wet * smoothstep(-0.02, 0.16, ndl);
-  lit += vec3(1.0, 0.95, 0.86) * spec * 1.9;               // >1 交给 bloom
+  lit += vec3(1.0, 0.95, 0.86) * spec * 1.9;               // above 1 this goes to bloom
 
-  // 冰：镜面瓣宽得多，而且阴影是蓝的——冰体内多次散射把红端吃掉了，
-  // 这是雪地最好认的特征之一。它还会向四周散光，所以夜面不会压成全黑。
+  // Ice: a much wider specular lobe, and blue shadows - multiple scattering inside the ice eats the
+  // red end, which is one of the most recognizable features of snow. It also scatters light sideways,
+  // so the night side never crushes to black.
   float iceSpec = pow(max(dot(N, H), 0.0), 46.0) * ice * smoothstep(-0.04, 0.20, ndl);
   lit += vec3(0.80, 0.88, 1.00) * iceSpec * 0.85;
   lit += vec3(0.055, 0.085, 0.150) * ice * (1.0 - day) * 1.15;
 
-  // 沙：粗糙表面的冲日效应——视线与光线接近时回散最强，沙漠因此在正午发白
+  // Sand: the opposition effect of a rough surface - backscatter peaks when the view and light directions nearly coincide, which is why deserts go white at noon
   float back = pow(max(dot(V, L), 0.0), 3.5) * arid * (1.0 - water) * day;
   lit += vec3(0.42, 0.34, 0.22) * back * 0.55;
 
-  // ── 城市灯火：NASA 夜间灯光原图
+  // -- City lights: the raw NASA night-lights image
   vec3 night = texture2D(uNight, uv).rgb;
   lit += night * pow(1.0 - day, 1.5) * uPop * 2.3 * (1.0 - ice * 0.85);
 
-  // 火线在夜面上才真正扎眼——卫星探火靠的就是这个热异常
+  // Fire lines are what really stand out on the night side - satellite fire detection works off exactly this thermal anomaly
   lit += vec3(1.00, 0.30, 0.05) * fire * (1.0 - day) * 4.5;
 
-  // ── 热辐射。约 650K 起可见暗红，900K 已经明显。这一项对日面夜面一视同仁：
-  // 温度一高，整个夜半球都会烧起来，而不是只有裂缝在亮——「整颗星在变」和
-  // 「贴了一层」的区别，最后就落在这种不分昼夜的项上。
+  // -- Thermal radiation. Visible as dark red from about 650K and obvious by 900K. This term treats day
+  // and night alike: once it is hot enough the entire night hemisphere burns rather than just the
+  // fissures - and the difference between "the whole planet is changing" and "a layer pasted on"
+  // finally comes down to terms like this one that ignore the day/night divide.
   float glowT = smoothstep(645.0, 1010.0, uTempLag.w);
   lit += vec3(1.00, 0.22, 0.040) * pow(glowT, 2.3) * 1.8;
 
   lit += emissive;
 
-  // ── 二向箔：光照塌缩为无光，色彩信息一并流失——它变成一张画
+  // -- The foil: lighting collapses to no lighting and the color information goes with it - it becomes a painting
   float lum = dot(base, vec3(0.299, 0.587, 0.114));
   vec3 flatLit = mix(base, vec3(lum), 0.26) * 1.42 + emissive * 0.55;
   lit = mix(lit, flatLit, vFlat);
 
-  // ── 塌缩前沿。这一击的光来自物质本身失去一个维度时放出的能量，
-  // 不是箔片在发光——所以它长在球面上、跟着曲率走，而不是浮在画面前。
-  // vFlat 的过渡带就是前沿，取其峰值；必须叠在上面那次 mix 之后，
-  // 否则会被压平后的无光配色稀释掉。
+  // -- The collapse front. The light of this strike comes from the energy matter releases as it loses a
+  // dimension, not from the foil glowing - which is why it grows on the sphere and follows its
+  // curvature instead of floating in front of the image.
+  // vFlat's transition band is the front, and this takes its peak; it must be applied after the mix
+  // above, or the flattened unlit palette would dilute it.
   if(vFlat > 0.001 && vFlat < 0.999){
-    // 指数取高是为了把前沿收窄：过渡带本身有 0.6 个半径宽，直接用
-    // 它的峰值会糊成一片，bloom 再一摊就是块白板。
+    // The high exponent narrows the front: the transition band is itself 0.6 of a radius wide, and
+    // using its peak directly smears into a blur that bloom then spreads into a white sheet.
     float front = pow(vFlat * (1.0 - vFlat) * 4.0, 7.0);
-    // 物质不是均匀地塌缩，前沿因此是撕裂的而不是一条干净的线
+    // Matter does not collapse uniformly, so the front is torn rather than a clean line
     float grain = 0.30 + 0.70 * (fbm3(n0 * 16.0) * 0.5 + 0.5);
-    // 红通道必须压在 1 以下。三个通道一起过 1，ACES 一压就是白——
-    // 「蓝色的强光」和「白光」的区别全在这里，不在亮度。
-    lit += vec3(0.12, 0.42, 1.00) * front * grain * 2.2;  // >1 交给 bloom
+    // The red channel has to stay below 1. With all three channels over 1, ACES compresses it to white -
+    // the entire difference between "intense blue light" and "white light" is here, not in brightness.
+    lit += vec3(0.12, 0.42, 1.00) * front * grain * 2.2;  // above 1 this goes to bloom
   }
 
-  // ── 引力挤压
+  // -- Gravitational crush
   if(uShatter > 0.0){
-    // 余温挂在这块碎片自己的飞散时长上，不是全局进度——否则两千块同时
-    // 亮、同时灭，再好的飞散也会露馅。
+    // The afterglow hangs off this fragment's own scatter timing rather than global progress -
+    // otherwise two thousand pieces light up and go out together, and no amount of good scattering
+    // would hide it.
     float b     = vBurst;
     float heat  = smoothstep(0.0, 0.04, b) * (1.0 - smoothstep(0.06, 0.34, b));
     float grain = fbm3(n0 * 7.0) * 0.5 + 0.5;
 
-    // 热在断面上，不在地壳上。地壳该是什么颜色还是什么颜色——把余温均匀刷满
-    // 每一面，两千块碎片就会一起变成橙色的落叶。
+    // The heat is on the fracture faces, not on the crust. The crust keeps whatever color it had -
+    // brushing the afterglow evenly over every face turns two thousand fragments into orange leaves.
     if(!gl_FrontFacing){
-      // 背面是新剥出来的地幔：没有海陆没有云，只有岩石和地心带出来的温度。
-      // 早先材质是 FrontSide，碎片翻到背面直接被剔掉——薄片忽闪忽灭，
-      // 那比「像纸屑」更致命：它连个实体都不是。
+      // The back face is freshly exposed mantle: no land or sea, no clouds, just rock and the heat
+      // brought up from the center.
+      // The material used to be FrontSide, so a fragment turning over was culled outright - thin
+      // flakes blinking in and out, which is worse than "like confetti": it isn't even a solid.
       float d = fbm3(n0 * 11.0) * 0.5 + 0.5;
       vec3 rock = mix(vec3(0.052, 0.040, 0.036), vec3(0.128, 0.104, 0.092), d);
       lit = rock * (0.22 + 0.92 * max(dot(N, L), 0.0))
           + vec3(1.0, 0.36, 0.10) * heat * (0.40 + 0.80 * grain) * 1.75;
     }else{
-      lit += vec3(1.0, 0.42, 0.14) * heat * grain * 0.20;   // 地壳面只沾一点：给多了海洋会泛紫
+      lit += vec3(1.0, 0.42, 0.14) * heat * grain * 0.20;   // the crust face gets only a touch: any more and the oceans go purple
     }
 
-    // 三角面没有厚度，掠射时会薄成一条线；真的石头这时候露出的是粗糙的侧面。
-    // 拿视角衰减补一道暗边，至少让它读起来有体积。
+    // A triangle has no thickness and thins to a line when seen edge-on; a real rock would be showing
+    // its rough side at that angle. A view-dependent falloff adds a dark edge so that it at least
+    // reads as having volume.
     float edgeOn = 1.0 - abs(dot(N, V));
     lit = mix(lit, lit * 0.22, pow(edgeOn, 4.0));
 
-    // 内核的照明。碎片内侧被它照亮，是「里面有东西」最直接的证据；
-    // 没有这道光，碎开的行星就只是一层被吹散的皮。
+    // Light from the core. The inner faces of fragments being lit by it is the most direct evidence
+    // that there is something inside; without that light, a broken planet is just a skin blown apart.
     float cd = length(vPos);
     float cl = max(dot(N, -vPos / max(cd, 1e-4)), 0.0);
     lit += vec3(1.0, 0.44, 0.14) * cl * uCoreGlow / (0.30 + cd * cd);
 
-    lit *= 1.0 - smoothstep(0.0, 0.18, uShatter) * 0.35;   // 塌缩期整体压暗
-    lit *= 1.0 - smoothstep(0.10, 0.80, b) * 0.55;         // 飞远之后冷下来
+    lit *= 1.0 - smoothstep(0.0, 0.18, uShatter) * 0.35;   // darken overall during the collapse
+    lit *= 1.0 - smoothstep(0.10, 0.80, b) * 0.55;         // and cool down once it has flown far
   }
 
   gl_FragColor = vec4(lit, 1.0);
 }
 `;
 
-/* ── 大气 ────────────────────────────────────────────── */
+/* -- Atmosphere ------------------------------------------------------- */
 
 const ATMO_VERT = `
 varying vec3 vWorld;
@@ -592,22 +640,23 @@ void main(){
 const ATMO_FRAG = `
 precision highp float;
 
-// 解析式单次散射。不靠网格形状表现大气：对每条视线求它实际穿过
-// 大气层的弦长并沿途积分，密度随高度指数衰减，因此到外缘自然归零，
-// 不存在可见的边界。之前用球壳 + fresnel，球壳的几何外边界就是
-// 那层「膜」的来源。
+// Analytic single scattering. The atmosphere is not expressed through mesh shape: for each view ray
+// this finds the chord it actually travels through the atmosphere and integrates along it, with
+// density falling off exponentially with height, so it reaches zero at the outer edge naturally and
+// there is no visible boundary. The previous approach was a spherical shell plus fresnel, and that
+// shell's geometric outer edge was exactly where the "membrane" look came from.
 uniform vec3  uLightDir;
-uniform float uDensity;   // 气压驱动
-uniform float uFade;      // 二向箔/挤压时整体淡出
-uniform vec3  uTint;      // 温度驱动的偏色
+uniform float uDensity;   // driven by pressure
+uniform float uFade;      // overall fade-out during the foil strike or the crush
+uniform vec3  uTint;      // temperature-driven color shift
 
 varying vec3 vWorld;
 
-const float Rp = 1.00;    // 行星半径
-const float Ra = 1.14;    // 大气外缘（真实约 1.016，此处夸张以便可见）
-const float H  = 4.2;     // 标高倒数：越大衰减越快
+const float Rp = 1.00;    // planet radius
+const float Ra = 1.14;    // outer edge of the atmosphere (about 1.016 in reality, exaggerated here to be visible)
+const float H  = 4.2;     // inverse scale height: larger falls off faster
 
-// 射线与球求交。无交点时返回一个空区间。
+// Ray-sphere intersection. Returns an empty interval when there is no hit.
 vec2 raySphere(vec3 ro, vec3 rd, float R){
   float b = dot(ro, rd);
   float c = dot(ro, ro) - R * R;
@@ -627,13 +676,13 @@ void main(){
   float t0 = max(atm.x, 0.0);
   float t1 = atm.y;
 
-  // 视线若打到行星本体，积分到那里为止——行星背后的大气看不见
+  // If the view ray hits the planet body, integrate only up to there - atmosphere behind the planet is not visible
   vec2 pl = raySphere(ro, rd, Rp);
   if(pl.x < pl.y && pl.y > 0.0) t1 = min(t1, max(pl.x, 0.0));
   if(t1 <= t0) discard;
 
   vec3 L = normalize(uLightDir);
-  // 逐像素抖动起点。等距采样在这种薄壳积分上会留下肉眼可见的同心条纹。
+  // Per-pixel jittered start. Evenly spaced samples leave visible concentric banding on a thin-shell integral like this.
   float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   const int STEPS = 12;
   float seg = (t1 - t0) / float(STEPS);
@@ -645,12 +694,13 @@ void main(){
     float h = clamp((length(p) - Rp) / (Ra - Rp), 0.0, 1.0);
     float dens = exp(-h * H) * seg;
 
-    // 该采样点是否被行星挡住阳光（决定晨昏线的位置）
+    // Whether this sample point is shadowed from the sun by the planet (this is what places the terminator)
     vec2 toSun = raySphere(p, L, Rp);
     float lit = (toSun.x < toSun.y && toSun.y > 0.0) ? 0.0 : 1.0;
 
-    // 阳光到达该点前穿过的大气厚度。越厚，蓝光被散射掉得越多，
-    // 剩下的就越红——日落的颜色由此自然产生，不需要手调。
+    // How much atmosphere the sunlight passed through to reach this point. The thicker it is, the more
+    // blue is scattered away and the redder what remains - the colors of a sunset come out of this on
+    // their own, with nothing tuned by hand.
     vec2 sunExit = raySphere(p, L, Ra);
     float sunDepth = exp(-h * H) * max(sunExit.y, 0.0) * 1.20;
     vec3 sunCol = exp(-sunDepth * vec3(0.40, 1.00, 2.30));
@@ -658,7 +708,7 @@ void main(){
     acc += dens * lit * sunCol;
   }
 
-  // 瑞利散射强度按 1/λ⁴，蓝端最强
+  // Rayleigh scattering goes as 1/lambda^4, strongest at the blue end
   vec3 rayleigh = vec3(0.30, 0.54, 1.00) * uTint;
   vec3 col = acc * rayleigh * 3.4 * uDensity;
 
@@ -667,7 +717,7 @@ void main(){
 
 `;
 
-/* ── 云层 ────────────────────────────────────────────── */
+/* -- Cloud layer ------------------------------------------------------ */
 
 const CLOUD_VERT = `
 varying vec2 vUv;
@@ -705,11 +755,13 @@ ${WIND}
 void main(){
   vec3 n0 = normalize(vSurf);
 
-  // 云是被风吹着走的，主运动是**平移**。之前为了绕开 mip 糊化，把平流换成了
-  // 「往复剪切 + 原地形变场」：往复让云来回滑，形变场让云团在原地扭——那不是在走，
-  // 那是程序化形变，一眼就能看出来。
-  // 正确的做法是按带取常数偏移：带内刚性平移（UV 导数为零，不糊，可以无界累积），
-  // 带间靠权重混合。见 bandWeights() 的注释。
+  // Clouds are carried by wind, and the primary motion is *translation*. To dodge the mip blurring,
+  // advection was once replaced by "oscillating shear plus an in-place deformation field": the
+  // oscillation slid the clouds back and forth while the field twisted each mass in place - that is
+  // not motion, that is procedural deformation, and it is obvious at a glance.
+  // The right answer is a constant offset per band: rigid translation within a band (zero UV
+  // derivative, no blurring, and it can accumulate without bound) blended between bands by weight.
+  // See the comment on bandWeights().
   vec3 w   = bandWeights(n0.y);
   vec3 off = BAND_SPEED * uWind;
   vec2 b   = vec2(vUv.x + uSpinUV, vUv.y);
@@ -717,21 +769,25 @@ void main(){
           + w.y * texture2D(uCloudTex, b + vec2(off.y, 0.0)).r
           + w.z * texture2D(uCloudTex, b + vec2(off.z, 0.0)).r;
 
-  // 生消：同样按带做刚性平流。若让调制花纹不动而云在动，就会出现「不动的花纹
-  // 盖在走的云上」——那比没有生消更假。第三维随时间漂移，负责生与灭。
-  float tD = uWind * 12.0;   // 生消的节奏与平流解耦：风慢了，云团的寿命不该跟着变长
+  // Formation and dissipation: rigidly advected per band as well. Holding the modulating pattern
+  // still while the clouds move produces "a stationary pattern laid over moving clouds", which is
+  // worse than having no formation at all. The third dimension drifts with time and does the forming
+  // and dissolving.
+  float tD = uWind * 12.0;   // the rhythm of formation is decoupled from advection: slower wind shouldn't lengthen a cloud's life
   float flow = w.x * (snoise(rotY(n0, off.x * 6.2831853) * 3.6 + vec3(0.0, tD, 0.0)) * 0.5 + 0.5)
              + w.y * (snoise(rotY(n0, off.y * 6.2831853) * 3.6 + vec3(0.0, tD, 0.0)) * 0.5 + 0.5)
              + w.z * (snoise(rotY(n0, off.z * 6.2831853) * 3.6 + vec3(0.0, tD, 0.0)) * 0.5 + 0.5);
 
-  // 云量分带：赤道辐合带最厚、副热带下沉支最薄、中纬风暴轴回升。
-  // 权重给小：这张云图是真实观测，本来就含这套气候态，加重会把带切得太硬。
+  // Banded cloud cover: thickest at the intertropical convergence zone, thinnest at the subtropical
+  // descending branch, rising again at the mid-latitude storm track.
+  // The weight is kept small: this cloud map is real observation and already contains that climatology,
+  // so pushing it harder cuts the bands too sharply.
   float cover = clamp(uCover * (1.0 + 0.30 * cloudBand(n0.y)), 0.0, 1.4);
 
-  // cover 推阈值（低气压时只剩最厚的云核），再整体缩放不透明度
+  // cover pushes the threshold (at low pressure only the thickest cores survive), then scales the opacity overall
   float a = smoothstep(0.30 - cover * 0.22, 0.74 - cover * 0.22, c);
   a *= clamp(cover * 2.4, 0.0, 1.0);
-  a *= 0.62 + 0.98 * flow;          // 密度波：云在这里生，在那里消
+  a *= 0.62 + 0.98 * flow;          // density waves: clouds form here and dissipate there
   if(a < 0.012) discard;
 
   vec3 L  = normalize(uLightDir);
@@ -742,18 +798,20 @@ void main(){
                   smoothstep(0.38, 0.0, ndl) * smoothstep(-0.16, 0.12, ndl));
 
   vec3 col = mix(vec3(0.95, 0.96, 0.98), vec3(0.72, 0.44, 0.28), uTint);
-  // 云的反照率约 0.7，是日面最亮的东西，不能比海面暗。
+  // A cloud's albedo is about 0.7, the brightest thing on the day side; it must not be darker than the sea.
   col *= (0.040 + day * 1.02) * warm;
 
   gl_FragColor = vec4(col, a * (1.0 - vFlat * 0.55) * (1.0 - smoothstep(0.0, 0.22, uShatter)));
 }
 `;
 
-/* ── 地幔与内核 ──────────────────────────────────────────
-   只有外壳碎开，里面是空的——那颗行星看着就是个气球。地幔和内核平时藏在
-   不透明的地壳后面，只在引力挤压时露出来：地幔比地壳晚裂、碎得更大更慢，
-   内核根本不裂，被压实、烧亮，最后作为余烬留在原地。
-   内核同时是碎片内侧的光源，「里面有东西」这件事主要靠那道光成立。 */
+/* -- Mantle and core ---------------------------------------------------
+   With only the shell breaking apart and nothing inside, the planet reads as a balloon. The mantle
+   and core normally hide behind the opaque crust and are revealed only during the gravitational
+   crush: the mantle fractures later than the crust, into larger and slower pieces, and the core does
+   not fracture at all - it is compressed, lit up, and left behind as an ember.
+   The core is also the light source for the inner faces of the fragments, and "there is something
+   inside" mostly stands on that light. */
 
 const MANTLE_FRAG = `
 precision highp float;
@@ -774,8 +832,9 @@ void main(){
   if(!gl_FrontFacing) N = -N;
 
   float d     = fbm3(n0 * 5.5) * 0.5 + 0.5;
-  // 系数决定「缝」有多宽。取 1.9 会让 ridge 几乎处处为正——那不是裂缝，
-  // 那是整颗球在发光。要的是窄缝，所以系数要大、指数要高。
+  // The factor decides how wide the "cracks" are. At 1.9 the ridge is positive almost everywhere -
+  // that isn't a fissure, that is the whole sphere glowing. Narrow cracks need a large factor and a
+  // high exponent.
   float ridge = 1.0 - abs(fbm3(n0 * 3.4)) * 3.4;
   float vein  = pow(clamp(ridge, 0.0, 1.0), 6.0);
 
@@ -783,12 +842,12 @@ void main(){
   vec3 L = normalize(uLightDir);
   vec3 lit = rock * (0.16 + 0.86 * max(dot(N, L), 0.0));
 
-  // 熔体脉络：压得越紧越亮，碎开之后随飞散冷却
+  // Veins of melt: brighter the tighter it is compressed, cooling with the scatter once it breaks apart
   float squeezed = smoothstep(0.0, 0.28, uShatter) * (1.0 - smoothstep(0.0, 0.42, vBurst));
   lit += mix(vec3(0.85, 0.18, 0.03), vec3(1.0, 0.60, 0.20), vein)
          * vein * (0.30 + 0.90 * squeezed) * 1.6;
 
-  // 内核的照明
+  // Light from the core
   float cd = length(vPos);
   float cl = max(dot(N, -vPos / max(cd, 1e-4)), 0.0);
   lit += vec3(1.0, 0.44, 0.14) * cl * uCoreGlow / (0.30 + cd * cd);
@@ -798,7 +857,7 @@ void main(){
 }
 `;
 
-// 内核不碎，只被压实，所以不需要碎块属性，自己一套最省。
+// The core never fractures, only compresses, so it needs no fragment attributes and gets its own minimal pair.
 const CORE_VERT = `
 uniform float uSquash;
 varying vec3 vSurf;
@@ -822,15 +881,15 @@ ${NOISE}
 void main(){
   vec3 n0 = normalize(vSurf);
   float d = fbm3(n0 * 4.2) * 0.5 + 0.5;
-  // 边缘偏红：看过去光程更长、温度更低，中心才是白热
+  // Redder at the rim: a longer path through it and a lower temperature there; only the center is white hot
   float rim = pow(1.0 - abs(dot(n0, normalize(cameraPosition - vPos))), 1.6);
   vec3 hot = mix(vec3(1.00, 0.88, 0.66), vec3(1.00, 0.30, 0.05),
                  clamp(0.28 + 0.44 * d + 0.46 * rim, 0.0, 1.0));
-  gl_FragColor = vec4(hot * uHeat, 1.0);   // >1 交给 bloom
+  gl_FragColor = vec4(hot * uHeat, 1.0);   // above 1 this goes to bloom
 }
 `;
 
-/* ── 二向箔与内核辉光 ─────────────────────────────────── */
+/* -- The foil and the core glow --------------------------------------- */
 
 const FOIL_VERT = `
 varying vec2 vUv;
@@ -840,11 +899,14 @@ void main(){
 }
 `;
 
-// 箔片本身几乎不发光——真正的光在行星表面的塌缩前沿（见 PLANET_FRAG）。
-// 一个二维物体不该有可见的厚度梯度，所以这里不做柔和的辉光带：中线是一条
-// 极窄的硬线，两侧是它扰动光路留下的干涉彩边。早先那版是 pow 5 的对称白带，
-// 芯部直接顶到纯白 —— 读起来是一根光棒，不是一片零厚度的东西。
-// 面片长 5.2：前缘之后要留足已转换区域，尾部靠 pow 衰减掉，不必真的无限远。
+// The foil itself barely emits - the real light is the collapse front on the planet's surface (see
+// PLANET_FRAG).
+// A two-dimensional object should have no visible thickness gradient, so there is no soft glow band
+// here: the centerline is an extremely narrow hard line, flanked by the interference fringes it
+// leaves by perturbing the light path. An earlier version was a symmetric pow-5 white band whose
+// core hit pure white - it read as a light rod, not as something with zero thickness.
+// The quad is 5.2 long: enough already-converted space behind the leading edge, with the tail
+// decaying by a pow, so it doesn't have to actually be infinite.
 const FOIL_LEN = 5.2, FOIL_WID = 4.4;
 
 const FOIL_FRAG = `
@@ -853,28 +915,30 @@ uniform float uOpacity;
 uniform float uTime;
 varying vec2 vUv;
 
-// 薄膜干涉的廉价近似：相位决定被增强的波长。彩边是它唯一能被看见的方式。
+// A cheap approximation of thin-film interference: the phase picks which wavelength is reinforced. The color fringe is the only way it can be seen.
 vec3 spectrum(float t){
   return 0.5 + 0.5 * cos(6.2831853 * (t + vec3(0.0, 0.33, 0.67)));
 }
 
 void main(){
-  float u = vUv.x;                    // 1 = 前缘，向后衰减
+  float u = vUv.x;                    // 1 = leading edge, decaying backwards
 
-  float edge   = pow(u, 52.0);        // 转换锋面：极窄
-  float tail   = pow(u, 3.2) * 0.16;  // 已经二维化的那片空间，留一层余辉
+  float edge   = pow(u, 52.0);        // the conversion front: extremely narrow
+  float tail   = pow(u, 3.2) * 0.16;  // the space already flattened to two dimensions, left with an afterglow
   float phase  = (1.0 - u) * 24.0 - uTime * 0.8;
   float fringe = pow(u, 7.0) * (0.5 + 0.5 * cos(phase * 6.2831853)) * 0.30;
 
-  // 横向收在行星附近。二维化的是整个空间，但把它整块画亮就是一张发光板，
-  // 远处交给想象——同时这也是「一根贯穿画面的光棒」的解药。
+  // Contained laterally near the planet. What is being flattened is all of space, but painting all of
+  // it bright would be a glowing board; the distance is left to the imagination - and this is also the
+  // cure for "a light rod running across the frame".
   float hz   = abs(vUv.y - 0.5) * ${FOIL_WID.toFixed(1)};
   float span = smoothstep(2.05, 0.30, hz);
 
   float a = (edge + tail + fringe) * span * uOpacity;
 
-  // 冷蓝，不给纯白：三通道一起过 1，ACES 一压就是一块曝掉的板子。
-  // 颜色叙事里冷蓝属于观测者，这一击本来就是观测者的手笔。
+  // Cold blue, never pure white: with all three channels over 1, ACES compresses it into a blown-out
+  // board. In the color narrative cold blue belongs to the observer, and this strike is the
+  // observer's doing.
   vec3 col = vec3(0.30, 0.62, 1.15) * edge * 4.0
            + vec3(0.10, 0.34, 0.86) * tail * 2.2
            + spectrum(phase * 0.5) * fringe * 1.6;
@@ -897,23 +961,29 @@ void main(){
 }
 `;
 
-/* ── 后期：景深与颗粒 ─────────────────────────────────────
-   景深要深度，而 three 自带的 BokehPass 用 scene.overrideMaterial 自己渲一张，
-   那会绕开我们的顶点形变——碎片的深度会停留在未碎裂的球面上，最该虚化的
-   近处碎片反而全是实的。所以自己渲：逐对象换材质，形变共用同一套 uniform。
+/* -- Post-processing: depth of field and grain ---------------------------
+   Depth of field needs depth, and three's own BokehPass renders it with scene.overrideMaterial,
+   which bypasses our vertex deformation - a fragment's depth would stay on the unshattered sphere,
+   and the near fragments that most need blurring would come out perfectly sharp. So this renders its
+   own: materials are swapped per object, and the deformation shares the same uniforms.
 
-   深度存的是到相机的径向距离（不是视空间 z），对景深来说这更贴近实际光学。 */
+   Depth stores radial distance to the camera (not view-space z), which is closer to real optics for
+   depth of field. */
 
-// 深度的归一化上限。星空在 42~56，会被夹到 1.0，因此天然落在焦外。
+// Normalization ceiling for depth. The starfield sits at 42-56 and clamps to 1.0, so it naturally falls out of focus.
 const DEPTH_FAR = 20.0;
 
-/* ── 撞击（生存模式） ────────────────────────────────
-   八个槽位环形复用。方向按撞击时刻的 uSpinUV「去自转」后存入，着色器再按当前 uSpinUV 转回来：
-   n0 不随贴图走（自转是 UV 偏移），直接存世界方向的话光斑会从地面上滑开（0.055 rad/s，4 秒 12°）。
-   符号由 SphereGeometry 的 UV 走向决定：x = -cos(2πu)·sinθ, z = sin(2πu)·sinθ，贴图特征的世界方位
-   φ = 2π(u_t − uSpinUV)，而 WIND 里的 rotY(P(φ), a) = P(φ − a)，故存 rotY(dir, −2π·s0)、
-   着色器里 rotY(·, 2π·uSpinUV)，符号为正。实测法：往一条认得出的海岸线上砸一下，再拨动自转，
-   光斑必须还在那条海岸线上；符号反了会朝反方向滑开一倍的角度。 */
+/* -- Impacts (survival mode) -------------------------------
+   Eight slots reused in a ring. The direction is "de-spun" by uSpinUV at the moment of impact before
+   being stored, and the shader rotates it back by the current uSpinUV: n0 does not follow the texture
+   (spin is a UV offset), so storing a world direction directly would make the flash slide off the
+   ground (0.055 rad/s, 12 degrees in four seconds).
+   The sign follows from SphereGeometry's UV convention: x = -cos(2*pi*u)*sin(theta),
+   z = sin(2*pi*u)*sin(theta), so a texture feature's world azimuth is phi = 2*pi*(u_t - uSpinUV),
+   while rotY(P(phi), a) = P(phi - a) in WIND. Hence storing rotY(dir, -2*pi*s0) and applying
+   rotY(., 2*pi*uSpinUV) in the shader, with a positive sign. How to test it: hit a recognizable
+   coastline, then spin the planet - the flash has to stay on that coastline. With the sign flipped it
+   slides away at twice the angle in the opposite direction. */
 const IMPACT_N = 8, IMPACT_LIFE = 60;
 
 const DEPTH_FRAG = `
@@ -925,9 +995,10 @@ void main(){
 }
 `;
 
-/* 外来对象（生存模式的陨石、护盾）的深度材质。它们只有平移/旋转/缩放（含实例矩阵），
-   没有形变，一套顶点着色器通吃。three 对 InstancedMesh 上的 ShaderMaterial 会自动定义
-   USE_INSTANCING 并声明 instanceMatrix。 */
+/* Depth material for foreign objects (the asteroids and shields of survival mode). They only translate,
+   rotate and scale (including the instance matrix) and never deform, so one vertex shader covers them
+   all. For a ShaderMaterial on an InstancedMesh, three defines USE_INSTANCING and declares
+   instanceMatrix automatically. */
 const DEPTH_XFORM_VERT = `
 varying vec3 vPos;
 void main(){
@@ -961,24 +1032,24 @@ const DOF_SHADER = {
     void main(){
       float z = texture2D(tDepth, vUv).r;
       float coc = clamp(abs(z - uFocus) / uRange, 0.0, 1.0);
-      coc *= coc;                       // 焦内留宽一点，焦外掉得快
+      coc *= coc;                       // keep the in-focus region wide and let it fall off quickly outside
       float r = coc * uMax;
 
-      // 画面绝大部分是合焦的，早退能省掉整屏的采样
+      // Most of the frame is in focus, and an early exit saves sampling the whole screen
       if(r < 0.6){ gl_FragColor = vec4(texture2D(tDiffuse, vUv).rgb, 1.0); return; }
 
       vec3 sum = vec3(0.0);
       float wsum = 0.0;
       for(int i = 0; i < 16; i++){
-        // Vogel 螺旋：黄金角铺点，接近泊松盘，而且不需要常量数组
-        // （GLSL ES 1.0 不支持带初始化的 const 数组）
+        // Vogel spiral: points spread by the golden angle, close to a Poisson disc and needing no
+        // constant array (GLSL ES 1.0 has no const arrays with initializers)
         float fi = float(i);
         float a  = fi * 2.39996323;
         float rr = sqrt((fi + 0.5) / 16.0) * r;
         vec2 off = vec2(cos(a), sin(a)) * rr * uTexel;
 
         float zs = texture2D(tDepth, vUv + off).r;
-        // 只让本身也在散焦的样点足额参与，否则清晰的前景会被糊到背景上
+        // Only samples that are themselves defocused contribute fully, otherwise a sharp foreground smears onto the background
         float w = abs(zs - uFocus) / uRange >= coc * 0.6 ? 1.0 : 0.25;
         sum  += texture2D(tDiffuse, vUv + off).rgb * w;
         wsum += w;
@@ -988,7 +1059,7 @@ const DOF_SHADER = {
   `
 };
 
-// 颗粒挂在 OutputPass 之后：它是胶片/传感器的产物，该落在色调映射之后的显示空间里。
+// Grain hangs off the end, after OutputPass: it is a product of film or a sensor, so it belongs in display space after tone mapping.
 const GRAIN_SHADER = {
   uniforms: {
     tDiffuse:{ value:null }, uTime:{ value:0 }, uAmount:{ value:0.060 }
@@ -1002,14 +1073,14 @@ const GRAIN_SHADER = {
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       float n = fract(sin(dot(vUv * 1024.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-      // 中间调颗粒最重，纯黑和纯白处几乎没有——均匀加噪只会显脏
+      // Grain is heaviest in the midtones and nearly absent at pure black and pure white - adding noise uniformly just looks dirty
       float lum = dot(c, vec3(0.299, 0.587, 0.114));
       gl_FragColor = vec4(c + n * uAmount * (0.30 + 0.70 * (1.0 - abs(lum * 2.0 - 1.0))), 1.0);
     }
   `
 };
 
-/* ── 舞台 ────────────────────────────────────────────── */
+/* -- Stage ------------------------------------------------------------ */
 
 const TEX = {
   day:    './textures/earth_day.jpg',
@@ -1018,35 +1089,39 @@ const TEX = {
   spec:   './textures/earth_spec.jpg'
 };
 
-/* ── 环境响应的时间常数（秒） ──────────────────────────
-   滑块给的是目标值，各子系统按自己的热容去追它。数值按「你拖一秒、
-   他们过四十七年」的时标折算：冰盖 4 秒约合两百年。
-   这一层是「这是个天体」和「这是个控件」的分界——零延迟的跟手感，
-   比任何贴图问题都更快地暴露出它不是模拟。 */
+/* -- Time constants for environmental response (seconds) ----------------
+   The slider sets a target and each subsystem chases it with its own heat capacity. The numbers are
+   scaled to the "one second of yours is forty-seven of their years" timescale: four seconds of ice
+   is about two hundred years.
+   This layer is the line between "this is a celestial body" and "this is a widget" - zero-latency
+   response gives away faster than any texture problem that it is not a simulation. */
 const ENV_TAU = {
-  crust: 8.0,   // 岩石圈：比冰盖还慢。它落后于冰盖的那一截就是「冰刚退走的地方」
-  ice:   4.0,   // 冰盖：热容最大，最后一个反应过来
-  sea:   2.6,   // 海洋：蒸干与封冻都慢
-  veg:   1.8,   // 植被：荒漠化要几代人
-  rock:  0.9,   // 岩石熔融：一旦够温度就很快
-  cloud: 0.75,  // 云量：成云消云以天计
-  air:   0.35   // 大气密度与配色：几乎即时
+  crust: 8.0,   // lithosphere: slower even than the ice. The amount it lags the ice by is "where the ice has just retreated from"
+  ice:   4.0,   // ice caps: the largest heat capacity, the last to react
+  sea:   2.6,   // oceans: slow to boil away and slow to freeze over
+  veg:   1.8,   // vegetation: desertification takes generations
+  rock:  0.9,   // rock melting: fast once it is hot enough
+  cloud: 0.75,  // cloud cover: forming and clearing takes days
+  air:   0.35   // atmospheric density and tint: nearly instant
 };
 
-// 帧率无关的指数逼近。朴素的 lerp(x, 0.1) 在 144Hz 上会抖、30Hz 上会黏，
-// 因为它是「每帧走剩余距离的 10%」而不是「每秒衰减到 1/e」。
+// Frame-rate-independent exponential approach. A naive lerp(x, 0.1) jitters at 144Hz and feels sticky
+// at 30Hz, because it means "cover 10% of the remaining distance each frame" rather than "decay to
+// 1/e each second".
 const damp = (cur, tgt, tau, dt) => cur + (tgt - cur) * (1 - Math.exp(-dt / tau));
 const clamp01 = v => Math.min(1, Math.max(0, v));
 
-/* ── 断裂图样 ──────────────────────────────────────────
-   把球面上的三角面归进碎块。早先是一面一片：两万个同样大小的三角，
-   飞散参数再怎么调也只能是一地彩纸屑——真实的断裂有尺寸谱。
+/* -- Fracture pattern ---------------------------------------
+   Groups the sphere's triangles into fragments. It used to be one triangle per fragment: twenty
+   thousand identical triangles, and no amount of tuning the scatter could make that anything but
+   confetti - real fracture has a size spectrum.
 
-   做法是 Worley：空间切成网格，每格放一个抖动过的种子，取最近的那个。
-   等价于一次 Voronoi 剖分，但只需查 27 个邻格，不必和上千种子逐一比对
-   （那是两千万次点积，够在加载时卡掉一帧）。
-   两档网格密度由一层低频噪声挑选，于是有的区域裂成大板块、有的碎成渣，
-   断裂本来就是不均匀的。 */
+   The method is Worley: space is cut into a grid, each cell holds one jittered seed, and the nearest
+   seed wins. That is equivalent to a Voronoi partition but only needs the 27 neighbouring cells
+   checked, instead of comparing against thousands of seeds (twenty million dot products, enough to
+   drop a frame at load time).
+   A low-frequency noise picks between two grid densities, so some regions split into large plates and
+   others crumble to grit - fracture is uneven to begin with. */
 const _rand3 = (x, y, z, salt) => {
   let h = (x * 374761393 + y * 668265263 + z * 1442695040 + salt * 2654435761) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -1054,7 +1129,7 @@ const _rand3 = (x, y, z, salt) => {
 };
 
 function fractureCell(x, y, z){
-  // 低频场决定这一带是裂成板还是碎成渣
+  // The low-frequency field decides whether this area splits into plates or crumbles to grit
   const gx = Math.floor(x * 1.6), gy = Math.floor(y * 1.6), gz = Math.floor(z * 1.6);
   const scale = _rand3(gx, gy, gz, 7) < 0.42 ? 7.0 : 14.5;
 
@@ -1071,55 +1146,64 @@ function fractureCell(x, y, z){
         const d = (sx-px)*(sx-px) + (sy-py)*(sy-py) + (sz-pz)*(sz-pz);
         if(d < best){ best = d; bx = cx; by = cy; bz = cz; }
       }
-  // 两档网格的键必须分开，否则粗细两套格子会撞号
+  // The keys of the two grids must be disjoint, or the coarse and fine cells would collide
   return (((bx + 64) * 181 + (by + 64)) * 181 + (bz + 64)) * 2 + (scale > 10 ? 1 : 0);
 }
 
-/* 命中停顿：断裂那一帧把时间几乎冻住，再放回。2.7 秒的挤压里最关键的
-   就是那一下，匀速滑过去等于没发生。 */
+/* Hit-stop: on the frame it fractures, time is almost frozen and then released. That instant is the
+   most important thing in the 2.7-second crush, and sliding through it at a constant rate is the same
+   as it never having happened. */
 const STOP_HOLD = 0.13, STOP_RAMP = 0.24;
 
-/* ── 操控 ──────────────────────────────────────────────
-   像转地球仪一样转它。有一条硬约束：**行星网格永不旋转**（二向箔要沿固定的世界
-   平面压缩）。所以横向转动走地表 UV 偏移那条既有通路——转的是贴图与云，晨昏线和
-   纬度带留在原处，这恰好就是真实自转下该有的样子（太阳不会跟着转）。纵向则是抬降
-   机位，等于把地球仪扳过来看极区。 */
-const DRAG_SPIN = 0.0070;   // 弧度/像素（横向）
-const DRAG_TILT = 0.0055;   // 弧度/像素（纵向）
-const SPIN_TAU  = 2.1;      // 松手后的摩擦时间常数：地球仪会转很久，但终究停下
-const SPIN_VMAX = 3.2;      // 甩速上限。再快就成了陀螺，地表读不出来，也就谈不上「操控」
-const TILT_TAU  = 0.75;     // 倾角收得快些，否则会飘过头
-const TILT_MAX  = 1.02;     // 再高 up 与视轴就快平行了，lookAt 会退化
-const SPIN_BASE = 0.055;    // 基础自转角速度
+/* -- Handling --------------------------------------------------
+   Turn it like a globe. There is one hard constraint: *the planet mesh never rotates* (the foil has to
+   compress along a fixed world plane). So horizontal turning reuses the existing surface UV offset -
+   what turns is the textures and clouds, while the terminator and the latitude bands stay put, which
+   is exactly how real rotation looks (the sun does not turn with it). Vertical turning raises and
+   lowers the camera instead, which is tipping the globe over to look at a pole. */
+const DRAG_SPIN = 0.0070;   // radians per pixel (horizontal)
+const DRAG_TILT = 0.0055;   // radians per pixel (vertical)
+const SPIN_TAU  = 2.1;      // friction time constant after release: a globe turns for a long time, but it does stop
+const SPIN_VMAX = 3.2;      // maximum flick speed. Faster than this is a gyroscope: the surface becomes unreadable, and so does the sense of handling it
+const TILT_TAU  = 0.75;     // tilt settles faster, otherwise it drifts past
+const TILT_MAX  = 1.02;     // any higher and up is nearly parallel to the view axis, where lookAt degenerates
+const SPIN_BASE = 0.055;    // base rotation rate
 
-/* 松手速度取最近 90ms 的峰值。松手总是被晚检测到——手一张开追踪先掉、分类再变，
-   等到 release() 那一帧速度估计已经在往下掉。只在手还在动时用（当前速度 ≥ 峰值的
-   35%）：拖到一半停住再松开是「放下」不是「甩」，不该给它一记峰值。只管自转不管
-   倾角：倾角有硬上限且到顶清速，给它峰值就是顶到边界撞一下。 */
+/* Release speed is the peak of the last 90ms. A release is always detected late - as the hand opens,
+   tracking drops first and the classification changes after, so by the frame release() runs the speed
+   estimate is already falling. It is only used while the hand is still moving (current speed >= 35%
+   of the peak): dragging, stopping, then letting go is "putting it down", not "flicking it", and
+   deserves no peak. Spin only, never tilt: tilt has a hard limit and clears its speed on reaching it,
+   so a peak there is just a bump against the boundary. */
 const PEAK_WINDOW = 0.09;
 const PEAK_GATE   = 0.35;
-/* 速度按「距上一次输入的真实间隔」估计，不逐帧估计。30fps 的摄像头在 60Hz 的循环里
-   隔帧才有位移，逐帧估计看到的是 2 倍尖峰与零交替，稳态在 ±15% 里晃（144Hz 上
-   ±25%），松手落在哪一帧全凭运气。45ms 大于一个 30fps 周期与一个采集子步，
-   小于 15fps 的周期；鼠标每帧都有事件，行为与从前完全一致。 */
+/* Speed is estimated from the real interval since the last input, not per frame. A 30fps camera in a
+   60Hz loop only moves on every other frame, and a per-frame estimate sees alternating double-spikes
+   and zeros, wobbling within +/-15% at steady state (+/-25% at 144Hz), so which frame the release
+   lands on is pure luck. 45ms is longer than one 30fps period plus a capture substep and shorter than
+   a 15fps period; a mouse has an event every frame, so its behaviour is unchanged. */
 const MOVE_GAP    = 0.045;
-/* 引力蓄力：握拳期间地壳先受应力。上升端轻微平滑抹掉 30fps 的台阶，中断后按 0.4s
-   回落，不会瞬间消失。震动峰值 0.18 定在挤压塌缩期（0.10→0.30）之下：发动那一刻
-   只增不减，读作 0.18→0.30→1.0 的递进；定高了会在发动那一帧先掉一截。 */
+/* Gravitational charge: the crust is stressed first while the fist is held. The rising edge is
+   lightly smoothed to erase the 30fps steps, and after an interrupt it decays over 0.4s rather than
+   vanishing instantly. The 0.18 shake peak sits below the crush's collapse phase (0.10 -> 0.30), so
+   the moment it fires the shake only increases, reading as a progression of 0.18 -> 0.30 -> 1.0;
+   set any higher and it would drop on the frame it fires. */
 const CHARGE_RISE   = 0.08;
 const CHARGE_TAU    = 0.40;
 const CHARGE_TRAUMA = 0.18;
 
-/* 观测者相对行星的倾角（弧度）。行星自转轴是世界 Y，若相机的 up 也取世界 Y，
-   纬度带、自转方向、两极就全部与屏幕轴对齐——那会读成「一颗贴了滚动贴图的球」，
-   而不是空间里一个有自己朝向的天体。给 up 一个倾角相当于给它一个黄赤交角
-   （地球是 23.4°）。不动网格：「网格永不旋转」是二向箔的前提。 */
+/* The observer's tilt relative to the planet, in radians. The planet's rotation axis is world Y, and
+   if the camera's up were world Y too, the latitude bands, the direction of rotation and the poles
+   would all align with the screen axes - which reads as "a sphere with a scrolling texture" rather
+   than a body in space with an orientation of its own. Giving up a tilt is giving it an axial tilt
+   (Earth's is 23.4 degrees). The mesh is untouched: "the mesh never rotates" is the foil's
+   precondition. */
 const CAM_TILT = 0.34;
 
-const DPR_MAX = 1.5;   // 见 setQuality：全分辨率的 Retina 会把这条管线钉在 30fps
+const DPR_MAX = 1.5;   // see setQuality: Retina at full resolution pins this pipeline at 30fps
 
-/* 一维值噪声。镜头抖动的位移必须连续：逐帧随机数抖成的是高频噪点，
-   噪声场抖出来的才是晃动。 */
+/* One-dimensional value noise. Camera shake displacement has to be continuous: a per-frame random
+   number shakes as high-frequency speckle, while a noise field shakes as movement. */
 const _hash1 = i => { const x = Math.sin(i * 127.1) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; };
 function noise1(t){
   const i = Math.floor(t), f = t - i;
@@ -1136,39 +1220,39 @@ export class PlanetStage {
     this.effectT = 0;
     this.driftT = 0;
     this.onEffectEnd = null;
-    this.onShock = null;       // 断裂那一帧回调，供 HUD 同帧闪光
+    this.onShock = null;       // callback on the frame it fractures, so the HUD can flash on the same frame
 
-    this.aimX = 0; this.aimY = 0;   // 视轴的偏置，不让行星钉死在正中
+    this.aimX = 0; this.aimY = 0;   // view axis offset, so the planet isn't nailed to dead center
     this.roll = CAM_TILT;
 
-    this.grabbed = false;           // 正被「抓住」：此时行星不自转，它在你手里
+    this.grabbed = false;           // currently "held": the planet does not spin, it is in your hand
     this.dragDX = 0; this.dragDY = 0;
-    this.spinVel = 0;               // 甩出去的角速度，松手后按摩擦衰减
+    this.spinVel = 0;               // flicked angular velocity, decaying by friction after release
     this.tiltVel = 0;
-    this.userEl = 0;                // 手动扳出来的倾角，会一直保持在那儿
-    this.inputT = 0;                // 操控时钟：累计 dt 而不是 performance.now()，采集脚本逐帧驱动时墙钟并不等距
-    this.quality = 1;               // 渲染缩放 0.5~1，乘在 DPR 上；主循环按帧时间自适应调（见 setQuality）
-    this.lastMoveT = 0;             // 上一次有位移输入的时刻
-    this.velLog = [];               // 最近 PEAK_WINDOW 内的角速度样本，松手时取峰值
-    this.charge = 0;                // 引力蓄力目标（手势模块给）
-    this.chargeK = 0;               // 实际显示的蓄力量，按时间常数跟随
+    this.userEl = 0;                // tilt the user has pulled to by hand, which stays where it was put
+    this.inputT = 0;                // handling clock: accumulated dt rather than performance.now(), since a capture script driving frame by frame makes the wall clock unevenly spaced
+    this.quality = 1;               // render scale 0.5-1, multiplied into the DPR; the main loop adapts it from frame time (see setQuality)
+    this.lastMoveT = 0;             // time of the last input that actually moved
+    this.velLog = [];               // angular velocity samples within the last PEAK_WINDOW, peaked on release
+    this.charge = 0;                // gravitational charge target (supplied by the gesture module)
+    this.chargeK = 0;               // the charge actually displayed, following with a time constant
 
-    this.trauma = 0;           // 0..1，实际位移取其平方
+    this.trauma = 0;           // 0..1; the actual displacement is its square
     this.shakeT = 0;
-    this.stop = 0;             // 命中停顿剩余时长，走真实时间
+    this.stop = 0;             // remaining hit-stop duration, on real time
     this.fractured = false;
-    this.impactHead = 0;       // 撞击槽的环形写指针
+    this.impactHead = 0;       // ring write pointer for the impact slots
 
-    // 环境：tgt 是滑块要求的，cur 是各子系统实际达到的
+    // Environment: tgt is what the slider asks for, cur is what each subsystem has actually reached
     this.tgt = { temp:288, cover:0.5, ctint:0, density:0.85, tr:1, tg:1, tb:1 };
     this.cur = { ice:288, sea:288, veg:288, rock:288, crust:288,
                  cover:0.5, ctint:0, density:0.85, tr:1, tg:1, tb:1,
                  fire:0, burn:0 };
-    this.warm = false;         // 首帧直接落到目标，免得开场几秒在「回暖」
+    this.warm = false;         // the first frame lands straight on the target, so the opening seconds aren't spent "warming up"
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false });
     this.renderer.setClearColor(0x05070A, 1);
-    // 线性 HDR 渲染，自发光超过 1.0 供 bloom 提取，链尾 OutputPass 做 ACES + sRGB
+    // Linear HDR rendering, emissive above 1.0 for bloom to extract, OutputPass at the end of the chain doing ACES + sRGB
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
 
@@ -1191,14 +1275,15 @@ export class PlanetStage {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // threshold 1.10 高于一切漫反射表面的峰值（冰约 1.03、云 0.90），
-    // 因此只有自发光项参与溢出：岩浆 3.2 / 灯火 2.3 / 海面反射 1.9 / 箔片 / 内核。
+    // A threshold of 1.10 is above the peak of every diffuse surface (ice about 1.03, clouds 0.90),
+    // so only emissive terms clip into bloom: magma 3.2 / city lights 2.3 / sea reflection 1.9 /
+    // the foil / the core.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.90, 0.34, 1.10);
 
     this._buildDepth();
     this.dof = new ShaderPass(DOF_SHADER);
     this.grain = new ShaderPass(GRAIN_SHADER);
-    // 顺序：景深在 bloom 之前（虚化的高光仍该溢出），颗粒在色调映射之后
+    // Order: depth of field before bloom (a blurred highlight should still bloom), grain after tone mapping
     this.composer.addPass(this.dof);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
@@ -1207,7 +1292,7 @@ export class PlanetStage {
     this.resize();
   }
 
-  /* — 贴图。先塞 1×1 占位，加载完再换，避免首帧空采样 — */
+  /* - Textures. A 1x1 placeholder goes in first and is swapped once loaded, avoiding empty samples on the first frame - */
   _loadTextures(){
     const solid = (r, g, b) => {
       const t = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);
@@ -1224,10 +1309,10 @@ export class PlanetStage {
     const loader = new THREE.TextureLoader();
     for(const [key, url] of Object.entries(TEX)){
       loader.load(url, t => {
-        t.wrapS = THREE.RepeatWrapping;       // 自转靠 UV 偏移，必须能环绕
+        t.wrapS = THREE.RepeatWrapping;       // spin is a UV offset, so it has to wrap
         t.wrapT = THREE.ClampToEdgeWrapping;
         t.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-        // 色图是 sRGB 编码的照片；spec 是数据图，保持线性
+        // The color maps are sRGB-encoded photographs; spec is data and stays linear
         t.colorSpace = (key === 'spec') ? THREE.NoColorSpace : THREE.SRGBColorSpace;
         this.tex[key] = t;
         if(this.uPlanet){
@@ -1243,13 +1328,14 @@ export class PlanetStage {
     }
   }
 
-  /* — 星空。均匀随机的单色点会读成一块平面背景板，行星就成了浮在它前面的
-       贴片。两件事让它变成「一个有纵深的地方」：恒星按光谱类型分色（蓝白到
-       橙红），以及把一部分密度压向一条倾斜的银道带。 — */
+  /* - Starfield. Uniformly random monochrome points read as a flat backdrop, which turns the planet
+       into a decal floating in front of it. Two things make it "a place with depth": coloring stars by
+       spectral type (blue-white through orange-red), and pushing some of the density into a tilted
+       galactic band. - */
   _buildStars(){
     const N = 3400;
     const pos = new Float32Array(N * 3), sz = new Float32Array(N), tmp = new Float32Array(N);
-    // 银道面的法线，与视轴和行星自转轴都错开，免得又出现一条与屏幕对齐的线
+    // The normal of the galactic plane, offset from both the view axis and the planet's rotation axis so there isn't another screen-aligned line
     const gn = new THREE.Vector3(0.36, 0.82, -0.44).normalize();
     const ga = new THREE.Vector3().crossVectors(gn, new THREE.Vector3(0, 1, 0)).normalize();
     const gb = new THREE.Vector3().crossVectors(gn, ga);
@@ -1257,7 +1343,7 @@ export class PlanetStage {
     for(let i = 0; i < N; i++){
       let x, y, z;
       if(i % 5 === 0){
-        // 银道带：沿面内均匀、法向按高斯收窄
+        // Galactic band: uniform within the plane, narrowed by a gaussian along its normal
         const th = Math.random() * Math.PI * 2;
         const h = (Math.random() + Math.random() + Math.random() - 1.5) * 0.17;
         const c = Math.cos(th), s2 = Math.sin(th);
@@ -1274,7 +1360,7 @@ export class PlanetStage {
       const r = 42 + Math.random() * 14;
       pos[i*3] = x * r; pos[i*3+1] = y * r; pos[i*3+2] = z * r;
       sz[i] = Math.random() < 0.05 ? 0.30 : 0.045 + Math.random() * 0.095;
-      // 偏向中段、少量走到两端：真实星场大多是白黄，蓝巨星和红矮星才是点缀
+      // Biased toward the middle with a few at each end: a real star field is mostly white and yellow, with blue giants and red dwarfs as the accents
       tmp[i] = Math.min(1, Math.max(0, (Math.random() + Math.random() + Math.random()) / 3
                                         + (Math.random() - 0.5) * 0.55));
     }
@@ -1298,7 +1384,7 @@ export class PlanetStage {
         void main(){
           float d = length(gl_PointCoord - 0.5);
           if(d > 0.5) discard;
-          // 光谱序列：橙红 → 白 → 蓝白
+          // Spectral sequence: orange-red -> white -> blue-white
           vec3 col = vT < 0.5
             ? mix(vec3(1.00, 0.74, 0.55), vec3(1.00, 0.97, 0.92), vT * 2.0)
             : mix(vec3(1.00, 0.97, 0.92), vec3(0.74, 0.83, 1.00), (vT - 0.5) * 2.0);
@@ -1310,8 +1396,9 @@ export class PlanetStage {
     this.scene.add(this.stars);
   }
 
-  /* — 深度图。景深需要它，而它必须用和画面完全一致的顶点形变，
-       否则碎片的深度会停在未碎裂的球面上。uniform 直接共用同一批对象。 — */
+  /* - Depth map. Depth of field needs it, and it has to use exactly the same vertex deformation as the
+       image, or a fragment's depth would stay on the unshattered sphere. The uniforms are shared
+       objects, used directly. - */
   _buildDepth(){
     this.depthRT = new THREE.WebGLRenderTarget(1, 1, { depthBuffer:true });
     const mk = (uni, vert, side) => new THREE.ShaderMaterial({
@@ -1323,23 +1410,23 @@ export class PlanetStage {
       [this.mantle,   mk(this.uMantle,   PLANET_VERT, THREE.DoubleSide)],
       [this.coreBody, mk(this.uCoreBody, CORE_VERT,   THREE.FrontSide)]
     ]);
-    // 透明层不写深度：它们本来就不该决定景深的对焦面
+    // Transparent layers don't write depth: they should not be deciding the focal plane
     this.depthHide = [this.clouds, this.atmo, this.foil, this.core, this.stars];
   }
 
-  /* ── 撞击：生存模式的陨石落地。dir 为世界方向（Vector3 或 {x,y,z}），size 为石头半径。 ── */
+  /* -- Impacts: an asteroid landing in survival mode. dir is a world direction (a Vector3 or {x,y,z}) and size is the rock's radius. -- */
   impact(dir, size){
-    const a = -this.uPlanet.uSpinUV.value * Math.PI * 2;      // 去自转，见 IMPACT_N 处的推导
+    const a = -this.uPlanet.uSpinUV.value * Math.PI * 2;      // de-spin, see the derivation at IMPACT_N
     const c = Math.cos(a), s = Math.sin(a);
     const u = this.uPlanet.uImpacts.value, k = this.impactHead * 4;
     u[k] = dir.x * c - dir.z * s; u[k + 1] = dir.y; u[k + 2] = dir.x * s + dir.z * c;   // rotY(dir, -spin)
     u[k + 3] = 0;
     this.uPlanet.uImpactSize.value[this.impactHead] = size;
     this.impactHead = (this.impactHead + 1) % IMPACT_N;
-    // 0.33~0.45：在蓄力 0.18 与箔片 0.30 之上、断裂 1.0 之下
+    // 0.33-0.45: above the charge's 0.18 and the foil's 0.30, below the fracture's 1.0
     this.trauma = Math.max(this.trauma, 0.25 + size * 1.5);
   }
-  // 走场景时间：命中停顿时光斑也该停
+  // On scene time: during hit-stop the flash should stop too
   _ageImpacts(edt){
     const u = this.uPlanet.uImpacts.value;
     for(let i = 3; i < u.length; i += 4){
@@ -1349,8 +1436,10 @@ export class PlanetStage {
     }
   }
 
-  /* ── 外来对象的深度登记。深度图是整个场景照常渲一遍：不登记的网格会把自己的颜色写进
-     深度图，景深随之出错。不透明的走 trackDepth（换深度材质），叠加/透明的走 overlay（渲深度时藏起来）。 ── */
+  /* -- Depth registration for foreign objects. The depth map renders the whole scene as usual: an
+     unregistered mesh writes its own color into the depth map and the depth of field goes wrong with
+     it. Opaque objects use trackDepth (which swaps in a depth material); additive and transparent
+     ones use overlay (which hides them while depth is rendered). -- */
   trackDepth(mesh, side = THREE.FrontSide){
     if(this.depthMat.has(mesh)) return;
     this.depthMat.set(mesh, new THREE.ShaderMaterial({
@@ -1377,7 +1466,7 @@ export class PlanetStage {
 
     const prev = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(this.depthRT);
-    this.renderer.setClearColor(0xffffff, 1);      // 空处 = 最远，星空因此会被虚化
+    this.renderer.setClearColor(0xffffff, 1);      // empty space = furthest away, so the starfield is blurred
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(prev);
@@ -1388,8 +1477,10 @@ export class PlanetStage {
     this.depthHide.forEach((o, k) => { o.visible = vis[k]; });
   }
 
-  /* — 断裂图样：把三角面归成碎块，再把每块的刚体属性摊回它的每个顶点。
-       coarse 小于 1 表示裂得更大块——地幔比地壳韧，碎得也更粗。 — */
+  /* - Fracture pattern: group triangles into fragments, then spread each fragment's rigid-body
+       attributes back onto all of its vertices.
+       A coarse value below 1 means larger pieces - the mantle is tougher than the crust and breaks
+       more coarsely. - */
   _fracture(geo, coarse){
     const pos = geo.attributes.position;
     const n = pos.count;
@@ -1399,7 +1490,7 @@ export class PlanetStage {
     const rnd = new Float32Array(n);
     const mass = new Float32Array(n);
 
-    // 一遍：把每个三角面归进碎块，顺便攒出各块的形心和面数
+    // First pass: assign each triangle to a fragment, accumulating each fragment's centroid and face count on the way
     const faces = n / 3;
     const keyOf = new Int32Array(faces);
     const blocks = new Map();
@@ -1410,7 +1501,7 @@ export class PlanetStage {
       }
       cx /= 3; cy /= 3; cz /= 3;
 
-      // 归一化后再乘 coarse：不同半径的壳层才有可比的碎块尺度
+      // Normalize before multiplying by coarse: only then are fragment sizes comparable between shells of different radius
       const inv = coarse / (Math.hypot(cx, cy, cz) || 1);
       const key = fractureCell(cx * inv, cy * inv, cz * inv);
       keyOf[f] = key;
@@ -1419,7 +1510,7 @@ export class PlanetStage {
       b.cx += cx; b.cy += cy; b.cz += cz; b.c++;
     }
 
-    // 二遍：每块算一次刚体属性，整块共用——这才是「一块碎片」的含义
+    // Second pass: compute the rigid-body attributes once per fragment, shared by the whole piece - that is what "one fragment" means
     for(const b of blocks.values()){
       b.cx /= b.c; b.cy /= b.c; b.cz /= b.c;
 
@@ -1434,7 +1525,7 @@ export class PlanetStage {
       b.ax = ax / AL; b.ay = ay / AL; b.az = az / AL;
 
       b.rnd = Math.random();
-      // 质量代理：面数开方后归一。同一份冲量下，它决定这块被推得多快、转得多急。
+      // Mass proxy: the square root of the face count, normalized. Under the same impulse it decides how fast this piece is pushed and how hard it spins.
       b.mass = Math.min(1, Math.sqrt(b.c / 60));
     }
 
@@ -1457,8 +1548,8 @@ export class PlanetStage {
     return geo;
   }
 
-  /* — 行星。用 SphereGeometry 取其正确的等距柱状 UV；
-       转 non-indexed 以便给每个三角面挂碎裂属性。 — */
+  /* - The planet. SphereGeometry for its correct equirectangular UVs, converted to non-indexed so
+       fracture attributes can be attached per triangle. - */
   _buildPlanet(){
     const geo = this._fracture(new THREE.SphereGeometry(1, 128, 80).toNonIndexed(), 1.0);
 
@@ -1472,7 +1563,7 @@ export class PlanetStage {
       uFoilX:{value:-1.9}, uShatter:{value:0}, uSpread:{value:1},
       uFracWin:{value:new THREE.Vector2(0.15, 0.09)}, uBurstK:{value:1.0},
       uCoreGlow:{value:0},
-      // three 的 flatten() 对已是 TypedArray 的值原样透传：这两块缓冲原地改写，零拷贝
+      // three's flatten() passes values that are already TypedArrays straight through: these two buffers are rewritten in place, zero copies
       uImpacts:{value:new Float32Array(IMPACT_N * 4).fill(-1)},
       uImpactSize:{value:new Float32Array(IMPACT_N)}
     };
@@ -1483,8 +1574,9 @@ export class PlanetStage {
     this.scene.add(this.planet);
   }
 
-  /* — 地幔：比地壳晚裂、碎得更大、飞得更慢。平时藏在不透明的地壳后面，
-       只在引力挤压时才打开——完整球体挡着它，白渲一层没有意义。 — */
+  /* - Mantle: fractures later than the crust, into larger pieces that fly slower. Normally hidden
+       behind the opaque crust and only switched on during the gravitational crush - with the complete
+       sphere in front of it, rendering a layer nobody can see is pointless. - */
   _buildMantle(){
     const geo = this._fracture(new THREE.SphereGeometry(0.86, 96, 56).toNonIndexed(), 0.58);
     this.uMantle = {
@@ -1501,8 +1593,9 @@ export class PlanetStage {
     this.scene.add(this.mantle);
   }
 
-  /* — 内核：不碎，只被压实、烧亮，最后作为余烬留在原地。
-       它还是碎片内侧的光源，「里面有东西」主要靠那道光。 — */
+  /* - Core: never fractures, only compresses, lights up, and is left behind as an ember.
+       It is also the light source for the inner faces of the fragments, and "there is something
+       inside" mostly stands on that light. - */
   _buildCoreBody(){
     this.uCoreBody = { uSquash:{value:0}, uHeat:{value:0.5} };
     this.coreBody = new THREE.Mesh(
@@ -1531,8 +1624,9 @@ export class PlanetStage {
   }
 
   _buildAtmo(){
-    // 球壳只是积分的载体，本身不该被看见——半径必须覆盖大气外缘 Ra=1.55。
-    // 遮挡关系由着色器内的射线求交解决，故关闭深度测试。
+    // The shell is only a carrier for the integral and should never be seen itself - its radius has to
+    // cover the atmosphere's outer edge, Ra=1.55.
+    // Occlusion is resolved by ray intersection inside the shader, so depth testing is off.
     const geo = new THREE.IcosahedronGeometry(1.17, 5);
     this.uAtmo = {
       uLightDir:{value:this.lightDir},
@@ -1549,28 +1643,31 @@ export class PlanetStage {
     this.scene.add(this.atmo);
   }
 
-  /* — 二向箔就是行星要塌缩进去的那个平面本身，所以它是水平的。
-       早先它是一块竖直面片横着扫过去，压出来的却是一张水平的饼——刀面和切面
-       差 90°，那是再怎么调亮度也救不回来的。现在它躺在 y≈0 上，前缘沿 X 推进，
-       与压平后的薄片共面；未转换的那半边球会把前缘挡住，薄片从褶皱底下露出来。 — */
+  /* - The foil is the very plane the planet is collapsing into, which is why it is horizontal.
+       It used to be a vertical quad sweeping sideways while the result was a horizontal disc - the
+       blade and the cut plane 90 degrees apart, something no amount of brightness tuning can rescue.
+       Now it lies on y ~= 0 and its leading edge advances along X, coplanar with the flattened sheet;
+       the unconverted half of the sphere occludes the leading edge, and the sheet emerges from under
+       the folds. - */
   _buildFoil(){
     const geo = new THREE.PlaneGeometry(FOIL_LEN, FOIL_WID);
     this.uFoil = { uOpacity:{value:0}, uTime:{value:0} };
-    // depthTest 必须开。关掉它箔片就画在所有东西之上，永远不会被行星挡住——
-    // 那是「贴在画面上的一道光」和「场景里的一个东西」之间最直接的区别。
+    // depthTest has to stay on. Without it the foil draws over everything and is never occluded by the
+    // planet - which is the most direct difference between "a streak of light stuck on the image" and
+    // "an object in the scene".
     this.foil = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms:this.uFoil, vertexShader:FOIL_VERT, fragmentShader:FOIL_FRAG,
       transparent:true, depthWrite:false, depthTest:true,
       blending:THREE.AdditiveBlending, side:THREE.DoubleSide
     }));
-    this.foil.rotation.x = -Math.PI / 2;   // 躺平，法线沿 +Y
-    this.foil.position.y = 0.06;           // 略高于薄片，免得共面打架
+    this.foil.rotation.x = -Math.PI / 2;   // lying flat, normal along +Y
+    this.foil.position.y = 0.06;           // slightly above the sheet, to avoid coplanar fighting
     this._placeFoil(-1.9);
     this.foil.renderOrder = 10;
     this.scene.add(this.foil);
   }
 
-  // 前缘落在 x 处：面片中心要往后退半个身位
+  // The leading edge lands at x: the quad's center has to sit back by half its length
   _placeFoil(x){ this.foil.position.x = x - FOIL_LEN / 2; }
 
   _buildCore(){
@@ -1594,40 +1691,42 @@ export class PlanetStage {
       r * Math.cos(a) * Math.cos(e)
     );
     this.camera.up.set(Math.sin(this.roll), Math.cos(this.roll), 0);
-    // 视轴不锁死在球心。把主体钉在正中央是「浮在画面上」最直接的来源——
-    // 没有任何真实机位能做到那件事。
+    // The view axis is not locked to the planet's center. Pinning the subject dead center is the most
+    // direct source of "floating on the image" - no real camera position does that.
     this.camera.lookAt(this.aimX, this.aimY, 0);
   }
 
-  /* ── 外部接口 ── */
+  /* -- Public interface -- */
 
-  // 只记录目标值。写进 uniform 的是 _dampEnv() 里按各自时间常数逼近的结果。
+  // Only the targets are recorded here. What goes into the uniforms is the result of _dampEnv() approaching them with each subsystem's own time constant.
   setEnv(tempK, pressureAtm, popNorm){
     this.uPlanet.uPop.value = popNorm;
     const t = this.tgt;
     t.temp = tempK;
 
-    // 云量：气压给上限，极端温度抑制（冻干 / 蒸散殆尽）
+    // Cloud cover: pressure sets the ceiling, and extreme temperatures suppress it (freeze-dried or evaporated away)
     const pc = Math.min(1, Math.pow(pressureAtm / 9, 0.60));
     const tk = Math.min(1, Math.max(0, (tempK - 150) / 120)) *
                Math.min(1, Math.max(0, (760 - tempK) / 180));
-    // 海水蒸干的那一段，蒸汽会先把整颗星裹起来，再随高温散掉。
-    // 少了这一步，海洋就是「悄悄变暗」——水去哪了？
+    // While the oceans boil away, the steam wraps the whole planet before dispersing at higher
+    // temperatures. Without this step the ocean merely "quietly darkens" - and where did the water go?
     const steam = Math.min(1, Math.max(0, (tempK - 362) / 70)) *
                   Math.min(1, Math.max(0, (560 - tempK) / 130));
     t.cover = Math.min(1, pc * (0.25 + 0.75 * tk) + steam * 0.55);
     t.ctint = Math.min(1, Math.max(0, (tempK - 340) / 260));
 
-    // 大气不能只听气压。地表干了会起沙尘、海干了会腾蒸汽、冻透了气体会冻析到
-    // 地面——大气的厚度本来就是地表状态的一部分。少了这条耦合，地表怎么变，
-    // 边上那圈光晕都纹丝不动，「只改了一层」的观感有一半来自这里。
-    // 沙尘在荒漠温区达峰，熔融之前就该退掉——线性外推到八百度还满值，
-    // 会把整层大气顶成橙色泛光，把地表糊掉
+    // The atmosphere can't listen to pressure alone. A dry surface raises dust, a boiling sea raises
+    // steam, a frozen one has its gases condense out onto the ground - the thickness of an atmosphere
+    // is part of the state of the surface. Without that coupling the halo at the limb never moves
+    // however the surface changes, and half of the "only one layer changed" impression comes from here.
+    // Dust peaks in the desert temperature band and has to retreat before melting - extrapolated
+    // linearly it would still be at full strength at eight hundred degrees, pushing the whole
+    // atmosphere into an orange glow that smears the surface away.
     const dust     = clamp01((tempK - 300) / 140) * clamp01((620 - tempK) / 140) * 0.45;
-    const condense = clamp01((248 - tempK) / 90) * 0.42;    // 低温 → 气体冻析到地表
+    const condense = clamp01((248 - tempK) / 90) * 0.42;    // cold -> gases condense onto the surface
     t.density = Math.min(2.6, Math.pow(pressureAtm / 1.2, 0.55) * 0.80
                               * (1 + dust + steam * 0.55) * (1 - condense));
-    // 高温大气偏橙（尘与硫），低温偏青白
+    // A hot atmosphere skews orange (dust and sulfur), a cold one blue-white
     const hot = Math.min(1, Math.max(0, (tempK - 320) / 320));
     const cold = Math.min(1, Math.max(0, (250 - tempK) / 130));
     t.tr = 1 + hot * 1.10 + cold * 0.15;
@@ -1656,13 +1755,14 @@ export class PlanetStage {
       this.warm = true;
     }
 
-    /* 热冲击 = 目标温度与植被通道之间的落差。慢慢拧滑块它始终接近零，
-       猛地拉上去它会飙起来、再随慢通道追上而回落——这正是「生物圈跟不上」
-       的量化形式，不必另外记录变化率。火灾就挂在它上面。 */
+    /* Thermal shock = the gap between the target temperature and the vegetation channel. Ease the
+       slider along and it stays near zero; yank it up and it spikes, then falls back as the slow
+       channel catches up - which is exactly the quantified form of "the biosphere can't keep up",
+       with no separate rate-of-change to track. Fires hang off it. */
     const shock = clamp01((t.temp - c.veg) / 55);
     const flam  = clamp01((t.temp - 300) / 45) * clamp01((525 - t.temp) / 70);
     c.fire = damp(c.fire, shock * flam, 0.6, dt);
-    // 过火面积：烧的时候涨，之后随植被恢复缓慢褪去（τ 约 22 秒）
+    // Burned area: grows while burning, then fades slowly as vegetation recovers (tau about 22 seconds)
     c.burn = Math.min(1, Math.max(0, c.burn + dt * (c.fire * 0.24 - c.burn * 0.045)));
 
     this.uPlanet.uTempLag.value.set(c.ice, c.veg, c.sea, c.rock);
@@ -1671,7 +1771,7 @@ export class PlanetStage {
     this.uPlanet.uCrustT.value = c.crust;
     this.uPlanet.uFire.value = c.fire;
     this.uPlanet.uBurn.value = c.burn;
-    // 燃烧本身也加载气溶胶，让大气跟着变浑
+    // Burning itself also loads aerosols, clouding the atmosphere with it
     const smoke = Math.min(0.55, c.fire * 1.1);
     this.uAtmo.uDensity.value = c.density * (1 + smoke * 0.45);
     this.uAtmo.uTint.value.setRGB(c.tr + smoke * 0.34, c.tg - smoke * 0.10, c.tb - smoke * 0.28);
@@ -1688,15 +1788,16 @@ export class PlanetStage {
     if(this.state !== 'idle') return false;
     this.state = 'crush'; this.effectT = 0;
     this._dropGrab();
-    // 碎开之后才看得到断面。完整球体是闭合的，背面全被剔掉也无妨，
-    // 始终开双面等于白付一倍的片元着色。
+    // The fracture faces only become visible once it breaks apart. A complete sphere is closed, so
+    // culling every back face costs nothing, while leaving DoubleSide on permanently pays for twice
+    // the fragment shading for nothing.
     this.planet.material.side = THREE.DoubleSide;
     this.mantle.material.side = THREE.DoubleSide;
     this.mantle.visible = this.coreBody.visible = true;
     return true;
   }
 
-  // 打击一开始就放开既有的抓取，不给峰值：打击进行中镜头归编排管，手上那点动量不该带进去。
+  // A strike releases any existing grab immediately, with no peak: the camera belongs to the choreography during a strike, and whatever momentum was in the hand shouldn't carry into it.
   _dropGrab(){ this.grabbed = false; this.velLog.length = 0; }
 
   reset(){
@@ -1727,54 +1828,60 @@ export class PlanetStage {
   }
 
   update(dt){
-    const edt = this._timeScale(dt);   // 场景时间：命中停顿期间被压慢
+    const edt = this._timeScale(dt);   // scene time: slowed during hit-stop
     this._dampEnv(edt);
     this._ageImpacts(edt);
 
-    this._input(dt);                // 操控走真实时间：命中停顿不该让手感变黏
+    this._input(dt);                // handling runs on real time: hit-stop shouldn't make it feel sticky
     this._charge(dt);
     if(!this.grabbed) this.spin += edt * SPIN_BASE;
     const spinUV = this.spin / (Math.PI * 2);
     this.uPlanet.uSpinUV.value = spinUV;
     this.uCloud.uSpinUV.value = spinUV;
-    // 云相对地面的位移交给纬向风带，不再是「整层比地表快 1.18 倍」那种刚体平移。
-    // 速率要压住：地表自转是 0.0088 UV/s，真实急流只有赤道自转线速的百分之几，
-    // 云跑得比行星转得还快会变成「云在抽」。这里取西风带绕行一圈约五分钟。
+    // Cloud displacement relative to the ground is handled by the zonal wind bands, no longer a rigid
+    // "the whole layer moves 1.18x faster than the surface" translation.
+    // The rate has to be held down: the surface rotates at 0.0088 UV/s, real jet streams are only a
+    // few percent of the equatorial rotation speed, and clouds moving faster than the planet turns
+    // reads as "the clouds are being yanked". This is about five minutes for the westerlies to go
+    // once around.
     this.wind += edt * 0.0034;
     this.uPlanet.uWind.value = this.uCloud.uWind.value = this.wind;
 
     if(this.state === 'idle'){
-      // 观测平台的漂移。原先是两条纯正弦，每约四十秒反向一次——那正是「浮在
-      // 水里」的运动学签名：没有方向、没有尽头、完美光滑。改成噪声场：它不周期，
-      // 方向能连续保持很久，读起来是被载着走而不是在原地上下晃。
+      // Drift of the observation platform. It used to be two pure sines reversing about every forty
+      // seconds - which is precisely the kinematic signature of "floating in water": no direction, no
+      // end, perfectly smooth. A noise field instead: aperiodic, able to hold a direction for a long
+      // time, and it reads as being carried along rather than bobbing in place.
       this.driftT += edt;
       const d = this.driftT;
       this.camAz = noise1(d * 0.021) * 0.17 + noise1(d * 0.079 + 11.0) * 0.030;
       this.camEl = Math.max(-TILT_MAX, Math.min(TILT_MAX,
                     this.userEl + noise1(d * 0.017 + 41.0) * 0.115 + 0.055));
-      // 主体在画面里也要呼吸，连滚转一起漂
+      // The subject breathes within the frame too, drifting along with a little roll
       this.aimX = noise1(d * 0.013 + 63.0) * 0.105;
       this.aimY = noise1(d * 0.011 + 87.0) * 0.080;
       this.roll = CAM_TILT + noise1(d * 0.009 + 29.0) * 0.05;
     }
     else if(this.state === 'foil'){
-      this.effectT += edt / 7.4;                    // 全程约 7.4 秒，缓慢不可抗
+      this.effectT += edt / 7.4;                    // about 7.4 seconds end to end, slow and irresistible
       const t = Math.min(1, this.effectT);
-      // 箔片是被投下的，不是被插值的：全程只会越来越快。早先用 smoothstep，
-      // 末端速度归零，扫掠看起来像是自己停在了行星另一侧。
+      // The foil is dropped, not interpolated: it only ever gets faster. An earlier smoothstep brought
+      // the end velocity to zero, and the sweep looked like it had stopped by itself on the far side
+      // of the planet.
       const x = -1.9 + t * (0.74 + 0.26 * t) * 3.8;
       for(const u of [this.uPlanet, this.uCloud]) u.uFoilX.value = x;
-      // 大气随压平进程整体淡出：二维空间里没有大气层
+      // The atmosphere fades out with the flattening: two-dimensional space has no atmosphere
       this.uAtmo.uFade.value = 1 - this._ss(0.0, 0.62, t);
       this._placeFoil(x);
       this.uFoil.uTime.value = this.effectT;
       this.uFoil.uOpacity.value = Math.sin(Math.min(1, t * 1.12) * Math.PI) * 0.78;
 
-      // 箔片压过行星期间的持续低鸣。它不是撞击，是那块空间在塌缩。
+      // The sustained low rumble while the foil passes over the planet. It is not an impact, it is that piece of space collapsing.
       if(x > -1.05 && x < 1.05) this.trauma = Math.max(this.trauma, 0.30);
 
-      // 相机抢在箔片抵达前转到掠射角。正面观察压平是看不出来的——
-      // 厚度归零需要视差才能读出，这一转是整个效果成立的前提。
+      // The camera turns to a grazing angle before the foil arrives. Flattening cannot be seen head
+      // on - reading a thickness going to zero needs parallax, and this move is what makes the whole
+      // effect work.
       const c = Math.min(1, t / 0.24);
       const ce = c * c * (3 - 2 * c);
       this.camAz = ce * 0.30;
@@ -1790,22 +1897,23 @@ export class PlanetStage {
       this.uAtmo.uFade.value = 1 - this._ss(0.0, 0.26, t);
 
       if(t < 0.17){
-        this.trauma = Math.max(this.trauma, 0.10 + t * 1.2);   // 塌缩期越压越响
+        this.trauma = Math.max(this.trauma, 0.10 + t * 1.2);   // louder the further the collapse goes
       }else if(!this.fractured){
-        // 断裂。停顿、震动、闪光必须落在同一帧上，否则三件事各说各的。
+        // The fracture. Hit-stop, shake and flash must all land on the same frame, or the three of them tell three different stories.
         this.fractured = true;
         this.stop = STOP_HOLD + STOP_RAMP;
         this.trauma = 1;
         if(this.onShock) this.onShock();
       }
 
-      // 断裂后退开，而且要退得比碎片云长得快——慢半拍就只剩一屏碎屑糊脸。
-      // 这也是这一击唯一的镜头语言：做完了，然后往后站。
+      // Pull back after the fracture, and faster than the debris cloud expands - lag behind and the
+      // screen is nothing but grit in your face.
+      // This is also the only camera language in this strike: it is done, now step back.
       this.camPush = this._ss(0.16, 0.95, this.effectT) * 2.40;
 
       this._updateInterior();
 
-      // 辉光晕必须等碎片开始分离才亮——提前亮就是在一颗完整球体前面糊一团白
+      // The glow halo must not brighten until the fragments start separating - any earlier and it is a white blob smeared in front of an intact sphere
       const op = this._ss(0.17, 0.30, t) * (1 - this._ss(0.34, 0.72, t)) * 0.55;
       this.uCore.uOpacity.value = Math.max(0, op);
       this.core.visible = op > 0.002;
@@ -1816,8 +1924,9 @@ export class PlanetStage {
       if(t >= 1) this._finish();
     }
     else if(this.state === 'done' && this.uPlanet.uShatter.value > 0 && this.effectT < 1.8){
-      // 碎片不会在动画「结束」那一帧停住——真空里没有东西能让它们停下来。
-      // 继续积分到 1.8：快的出画，慢的被残核引力拉回，剩下一团瓦砾。
+      // Fragments do not stop on the frame the animation "ends" - nothing in vacuum could stop them.
+      // Integration continues to 1.8: the fast ones leave the frame, the slow ones are pulled back by
+      // the remnant core's gravity, and a field of rubble is left.
       this.effectT += edt / 2.7;
       const v = Math.min(1.8, this.effectT);
       this.uPlanet.uShatter.value = this.uCloud.uShatter.value = this.uMantle.uShatter.value = v;
@@ -1826,37 +1935,37 @@ export class PlanetStage {
     }
 
     this._applyCam();
-    this._shake(dt);          // 抖动走真实时间：停顿期间画面照样在震
+    this._shake(dt);          // shake runs on real time: the image keeps shaking during hit-stop
 
     this._renderDepth();
     this.dof.uniforms.tDepth.value = this.depthRT.texture;
-    // 对焦面永远落在行星中心：镜头退开时焦点要跟着退，否则一退就全虚了
+    // The focal plane always lands on the planet's center: as the camera pulls back the focus has to go with it, or everything blurs the moment it moves
     this.dof.uniforms.uFocus.value = (this.baseR + this.camPush) / DEPTH_FAR;
     this.grain.uniforms.uTime.value = (this.grain.uniforms.uTime.value + dt * 61.0) % 1000.0;
 
     this.composer.render();
   }
 
-  /* 内核与地幔的状态。挂在 effectT 上而不是夹到 1 的 t 上，
-     这样动画「结束」之后余烬还会继续冷下去。 */
+  /* State of the core and mantle. Hung off effectT rather than the t clamped to 1, so the ember keeps
+     cooling after the animation "ends". */
   _updateInterior(){
     const e = this.effectT;
-    // 压实：塌缩期越压越紧，断裂之后就定在那儿了
+    // Compression: tighter the further the collapse goes, then fixed once it fractures
     this.uCoreBody.uSquash.value = Math.pow(Math.min(e, 0.30) / 0.30, 2.2) * 0.42;
-    // 亮度：塌缩点火 → 断裂时最亮 → 之后作为余烬慢慢冷
+    // Brightness: ignition during the collapse -> brightest at the fracture -> cooling as an ember afterwards
     this.uCoreBody.uHeat.value = Math.max(
       0.12, 0.35 + this._ss(0.05, 0.24, e) * 1.60 - this._ss(0.34, 1.5, e) * 1.45);
-    // 照亮碎片内侧的那道光，比内核本身收得快——碎片飞远后平方反比也会接管
+    // The light that illuminates the fragments' inner faces pulls back faster than the core itself - the inverse square law also takes over once they fly far
     const g = this._ss(0.10, 0.26, e) * 1.10 - this._ss(0.38, 1.25, e) * 1.00;
     this.uPlanet.uCoreGlow.value = this.uMantle.uCoreGlow.value = Math.max(0, g);
   }
 
-  /* ── 操控接口。指针事件在 main.js 里收，这里只管物理。 ── */
+  /* -- Handling interface. Pointer events are collected in main.js; this only does the physics. -- */
 
   grab(){
-    if(this.state !== 'idle') return false;   // 打击进行中，镜头归编排管
+    if(this.state !== 'idle') return false;   // a strike is running, the camera belongs to the choreography
     this.grabbed = true;
-    this.spinVel = 0; this.tiltVel = 0;       // 重新抓住＝抓停它
+    this.spinVel = 0; this.tiltVel = 0;       // grabbing again = grabbing it to a stop
     this.velLog.length = 0;
     return true;
   }
@@ -1864,16 +1973,16 @@ export class PlanetStage {
   release(){
     if(!this.grabbed) return;
     this.grabbed = false;
-    // 松手取最近一段的峰值，但只在手还在动时：停住再松开是「放下」，保持当前值。
+    // Release takes the recent peak, but only while the hand is still moving: stopping and then letting go is "putting it down", which keeps the current value.
     let peak = this.spinVel;
     for(const s of this.velLog) if(Math.abs(s.v) > Math.abs(peak)) peak = s.v;
     if(Math.abs(this.spinVel) >= PEAK_GATE * Math.abs(peak)) this.spinVel = peak;
     this.spinVel = Math.max(-SPIN_VMAX, Math.min(SPIN_VMAX, this.spinVel));
     this.velLog.length = 0;
   }
-  // 人为附加的自转角速度（弧度/秒）。文明那边按时间积分它，得到「被拨动了多少弧度」。
+  // Externally imposed angular velocity (radians/s). The civilization integrates it over time to get "how many radians it has been turned by".
   get spinAnomaly(){ return Math.abs(this.spinVel); }
-  // 引力蓄力目标 0..1。只在 idle 生效：打击一开始目标归零，辉光在塌缩底下淡出。
+  // Gravitational charge target 0..1. Only effective while idle: a strike zeroes the target immediately, and the glow fades out under the collapse.
   setCharge(k){ this.charge = clamp01(k); }
 
   _input(dt){
@@ -1884,14 +1993,16 @@ export class PlanetStage {
     if(this.grabbed){
       this.spin  -= dx * DRAG_SPIN;
       this.userEl = Math.max(-TILT_MAX, Math.min(TILT_MAX, this.userEl + dy * DRAG_TILT));
-      // 速度估计要平滑。单帧差分噪声太大，直接拿去当初速，松手那下会一顿。
-      // 而且要按「距上一次输入的真实间隔」算：摄像头隔帧才有位移，逐帧算是尖峰与零交替。
+      // Speed estimation has to be smoothed. Single-frame differences are too noisy, and using one
+      // directly as the initial velocity makes the release stutter.
+      // It also has to be computed over the real interval since the last input: a camera only moves on
+      // alternate frames, and a per-frame computation alternates between spikes and zeros.
       if(dx !== 0 || dy !== 0){
         const span = Math.max(this.inputT - this.lastMoveT, 1e-3);
         this.lastMoveT = this.inputT;
         this.spinVel = damp(this.spinVel, -dx * DRAG_SPIN / span, 0.055, span);
         this.tiltVel = damp(this.tiltVel,  dy * DRAG_TILT / span, 0.055, span);
-      }else if(this.inputT - this.lastMoveT > MOVE_GAP){   // 输入真的停了（鼠标静止）
+      }else if(this.inputT - this.lastMoveT > MOVE_GAP){   // input really has stopped (a stationary mouse)
         this.spinVel = damp(this.spinVel, 0, 0.055, dt);
         this.tiltVel = damp(this.tiltVel, 0, 0.055, dt);
       }
@@ -1903,13 +2014,14 @@ export class PlanetStage {
       this.userEl = Math.max(-TILT_MAX, Math.min(TILT_MAX, this.userEl + dt * this.tiltVel));
       this.spinVel *= Math.exp(-dt / SPIN_TAU);
       this.tiltVel *= Math.exp(-dt / TILT_TAU);
-      // 扳到极限还留着动量的话，松手后会一直贴着边界抖
+      // Leaving momentum at the limit would make it vibrate against the boundary forever after release
       if(Math.abs(this.userEl) >= TILT_MAX - 1e-4) this.tiltVel = 0;
     }
   }
 
-  // 引力蓄力的表现：地壳裂缝随 uCharge 亮起、镜头随之微震。走真实时间，只在 idle 生效；
-  // 发动之后挤压时间线自己接管 trauma（两边都取 max，所以只增不减），uCharge 在塌缩底下淡出。
+  // How the gravitational charge presents: the crustal fissures light up with uCharge and the camera
+  // shakes slightly with it. Runs on real time and only while idle; once it fires, the crush timeline
+  // takes over trauma (both take a max, so it only ever increases) and uCharge fades out under the collapse.
   _charge(dt){
     const tgt = this.state === 'idle' ? this.charge : 0;
     this.chargeK = damp(this.chargeK, tgt, tgt > this.chargeK ? CHARGE_RISE : CHARGE_TAU, dt);
@@ -1918,7 +2030,7 @@ export class PlanetStage {
     if(this.state === 'idle') this.trauma = Math.max(this.trauma, this.chargeK * CHARGE_TRAUMA);
   }
 
-  // 命中停顿。先几乎冻住，再放回，返回缩放后的时间步。
+  // Hit-stop. Almost freeze first, then release, returning the scaled time step.
   _timeScale(dt){
     if(this.stop <= 0) return dt;
     this.stop = Math.max(0, this.stop - dt);
@@ -1927,9 +2039,9 @@ export class PlanetStage {
     return dt * k;
   }
 
-  // 镜头震动。trauma 线性衰减，位移取其平方——人对强度的感知是指数的，
-  // 平方让抖动起得猛、收得干净。抖旋转不抖平移：镜头是被震到，不是被推走，
-  // 构图也就不会跑掉。
+  // Camera shake. trauma decays linearly and the displacement is its square - human perception of
+  // intensity is exponential, and squaring makes the shake start hard and finish cleanly. It shakes
+  // rotation, never translation: the camera is being shaken, not pushed, so the composition stays put.
   _shake(dt){
     this.trauma = Math.max(0, this.trauma - dt * 1.35);
     if(this.trauma <= 0.001) return;
@@ -1952,8 +2064,10 @@ export class PlanetStage {
     if(this.onEffectEnd) this.onEffectEnd(was);
   }
 
-  /* 渲染缩放。行星着色器每帧要跑两遍（颜色 + 自渲的深度图），再加 16 采样景深与五层 bloom——
-     Retina 上 DPR 2 是 3024×1424，4M 像素把 M 系列芯片也钉在 30fps。DPR 封顶 1.5，再按帧时间自适应。 */
+  /* Render scale. The planet shader runs twice per frame (color plus the self-rendered depth map) on
+     top of 16-sample depth of field and five bloom levels - on Retina, DPR 2 means 3024x1424, and four
+     megapixels pin even an M-series chip at 30fps. The DPR is capped at 1.5 and then adapted from
+     frame time. */
   setQuality(q){
     q = Math.max(0.5, Math.min(1, q));
     if(Math.abs(q - this.quality) < 1e-3) return;
@@ -1970,15 +2084,16 @@ export class PlanetStage {
     if(this.composer){
       this.composer.setPixelRatio(dpr);
       this.composer.setSize(w, h);
-      // 深度图与合成链同分辨率；模糊半径按像素给，所以要连 dpr 一起算
+      // The depth map matches the composition chain's resolution; the blur radius is given in pixels, so dpr has to be folded in
       const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
       this.depthRT.setSize(pw, ph);
       this.dof.uniforms.uTexel.value.set(1 / pw, 1 / ph);
       this.dof.uniforms.uMax.value = Math.max(3, ph * 0.008);
     }
     this.camera.aspect = w / h;
-    // 按视场角和宽高比反算距离。竖屏时限制维度是宽度，写死距离必然裁切；
-    // 窄屏还要多留余量——上下各被一块面板压掉约三分之一高度。
+    // Solve for the distance from the field of view and the aspect ratio. In portrait the limiting
+    // dimension is width, and a hardcoded distance would inevitably crop; narrow screens need extra
+    // margin on top of that - a panel takes about a third of the height at each end.
     const vFov = this.camera.fov * Math.PI / 180;
     const margin = w < 760 ? 1.52 : 1.45;
     this.baseR = margin / (Math.tan(vFov / 2) * Math.min(1, w / h));
