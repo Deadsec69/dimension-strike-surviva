@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""宣传 GIF 的采集服务器：既发站点，又收页面 POST 回来的帧。
+"""Capture server for the promo GIFs: serves the site and receives the frames the page POSTs back.
 
-同源是关键——页面直接 fetch('/frame/...')，不必操心 CORS。
-/capture.html 是 index.html 末尾注入一行 capture.js，站点本身不带任何采集代码。
-页面把 meta 发回来就算采完，服务器随即退出。
+Same origin is the point - the page can fetch('/frame/...') directly with no CORS to worry about.
+/capture.html is index.html with one line appended that injects capture.js; the site itself carries no
+capture code at all.
+Capture is finished once the page posts its meta back, and the server exits immediately after.
 
-用法：python tools/promo-gif/capserve.py [--port 8125] [--clips b_foil,c_crush] [--no-open]
+Usage: python tools/promo-gif/capserve.py [--port 8125] [--clips b_foil,c_crush] [--no-open]
 """
 import argparse, base64, json, os, re, shutil, sys, threading, webbrowser
 from functools import partial
@@ -44,16 +45,16 @@ class H(SimpleHTTPRequestHandler):
         try:
             kind = parts[0]
             if kind in ('frame', 'reset') and not CLIP.match(parts[1]):
-                raise ValueError('非法片段名 ' + parts[1])
-            if kind == 'frame':              # frame/<clip>/<idx>，body 是 dataURL
+                raise ValueError('illegal clip name ' + parts[1])
+            if kind == 'frame':              # frame/<clip>/<idx>, with a dataURL as the body
                 d = os.path.join(FRAMES, parts[1])
                 os.makedirs(d, exist_ok=True)
                 with open(os.path.join(d, '%04d.png' % int(parts[2])), 'wb') as f:
                     f.write(base64.b64decode(body.split(b',', 1)[1]))
-            elif kind == 'reset':            # 重拍前清掉旧帧：新拍的一段比旧的短，旧尾巴会混进来
+            elif kind == 'reset':            # clear old frames before a retake: a shorter new take would otherwise leave the old tail behind
                 shutil.rmtree(os.path.join(FRAMES, parts[1]), ignore_errors=True)
-                print('采集 ' + parts[1], flush=True)
-            elif kind == 'meta':             # 采完了。并进已有的 meta，只重拍几段时其余几段不丢
+                print('capturing ' + parts[1], flush=True)
+            elif kind == 'meta':             # done. Merged into the existing meta so a partial retake doesn't lose the other clips
                 meta = {}
                 if os.path.exists(META):
                     with open(META, encoding='utf-8') as f:
@@ -61,10 +62,10 @@ class H(SimpleHTTPRequestHandler):
                 meta.update(json.loads(body))
                 with open(META, 'w', encoding='utf-8') as f:
                     json.dump(meta, f, ensure_ascii=False)
-                print('采集完成 → ' + OUT, flush=True)
+                print('capture complete -> ' + OUT, flush=True)
                 self.server.result = 0
             elif kind == 'fail':
-                print('采集失败：' + body.decode('utf-8', 'replace'), file=sys.stderr, flush=True)
+                print('capture failed: ' + body.decode('utf-8', 'replace'), file=sys.stderr, flush=True)
                 self.server.result = 1
             else:
                 self.send_error(404)
@@ -90,8 +91,8 @@ class H(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8125)
-    ap.add_argument('--clips', help='只拍这几段，逗号分隔；不给就全拍')
-    ap.add_argument('--no-open', action='store_true', help='不自动打开浏览器')
+    ap.add_argument('--clips', help='capture only these clips, comma separated; all of them if omitted')
+    ap.add_argument('--no-open', action='store_true', help="don't open a browser automatically")
     args = ap.parse_args()
 
     os.makedirs(FRAMES, exist_ok=True)
@@ -100,7 +101,7 @@ if __name__ == '__main__':
     url = 'http://127.0.0.1:%d/capture.html' % args.port
     if args.clips:
         url += '?clips=' + args.clips
-    print('采集页：' + url, flush=True)
+    print('capture page: ' + url, flush=True)
     if not args.no_open:
         webbrowser.open(url)
     srv.serve_forever()

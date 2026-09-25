@@ -1,45 +1,59 @@
-# 公众号宣传 GIF
+# Promo GIFs
 
-六段镜头（主视觉 / 二向箔 / 引力挤压 / 升温 / 冰封 / 拨动自转，720 宽）加一张
-约 22 秒的精华合集（640 宽），12fps、无限循环，全部压在公众号的 **10MB / 300 帧** 以内。
+Six clips (hero / foil / gravity crush / heating / freezing / spinning, 720 wide) plus a ~22 second
+highlight reel (640 wide), all at 12fps, looping forever, and all kept under the **10MB / 300 frame**
+limit of the publishing platform.
 
 ```bash
-python tools/promo-gif/capserve.py     # 自动打开采集页，逐帧拍完后服务器自行退出
-python tools/promo-gif/compose.py      # 叠暗角、闪光、判词、通讯字幕、读数、触点
-bash   tools/promo-gif/encode.sh       # → out/gif/01_主视觉.gif … 06_拨动自转.gif
-python tools/promo-gif/reel.py         # → out/gif/00_精华合集.gif
+python tools/promo-gif/capserve.py     # opens the capture page; the server exits once every frame is shot
+python tools/promo-gif/compose.py      # overlays the vignette, flash, verdict, comms subtitles, readouts and touch points
+bash   tools/promo-gif/encode.sh       # -> out/gif/01_hero.gif ... 06_spin.gif
+python tools/promo-gif/reel.py         # -> out/gif/00_reel.gif
 ```
 
-只重拍几段：`capserve.py --clips b_foil,c_crush`，再对这几段跑 `compose.py b_foil c_crush`
-和 `encode.sh b_foil c_crush`。其余几段的记录保留在 `out/meta.json` 里。
+To redo only some clips: `capserve.py --clips b_foil,c_crush`, then run `compose.py b_foil c_crush`
+and `encode.sh b_foil c_crush` on those. The records for the other clips stay in `out/meta.json`.
 
-依赖：ffmpeg、Python 的 Pillow 与 numpy。先跑过 `fetch-assets.sh`，贴图不齐采集会报错。
-中间产物都在 `out/`（已忽略），整套约 1GB。
+Dependencies: ffmpeg, plus Pillow and numpy for Python. Run `fetch-assets.sh` first - capture fails if
+the textures are incomplete. All intermediates live in `out/` (gitignored), about 1GB in total.
 
-## 流程
+## Pipeline
 
-**采集**（`capserve.py` + `capture.js`）。`/capture.html` 是 `index.html` 末尾注入一行
-`capture.js`，站点本身不带采集代码。页面停掉自己的主循环，按 1/24 秒逐帧确定性推进、
-渲染、`toDataURL`，POST 回服务器落盘；打击帧、断裂帧、通讯记录、滑块温度、手指位置
-一并记进 `meta.json`，后期全靠它对齐。
+**Capture** (`capserve.py` + `capture.js`). `/capture.html` is `index.html` with one line injecting
+`capture.js` appended; the site itself carries no capture code. The page stops its own main loop and
+advances deterministically 1/24 second at a time, rendering, calling `toDataURL` and POSTing frames
+back to the server. Strike frames, fracture frames, comms log entries, slider temperatures and finger
+positions are all recorded into `meta.json`, which everything downstream aligns against.
 
-**合成**（`compose.py`）。暗角、闪光、判词、通讯记录都是 DOM 层，画布拿不到，按
-`css/style.css` 还原后叠上。字号放大了：960 宽的画布在公众号里约缩到 0.39 倍，
-原样的 20px 判词到手机上只剩 8px。
+**Compositing** (`compose.py`). The vignette, flash, verdict and comms log are DOM layers the canvas
+cannot see, so they are reconstructed from `css/style.css` and overlaid. The type is scaled up: a
+960-wide canvas ends up around 0.39x in a feed, and a 20px verdict at original size is 8px on a phone.
 
-**编码**（`encode.sh`）。隔帧取到 12fps，128 色 bayer 抖动，逐段单独调色板。
+**Encoding** (`encode.sh`). Every other frame is taken to reach 12fps, 128 colors with bayer dithering,
+and a separate palette per clip.
 
-**合集**（`reel.py`）。每段只取一截，没事发生的部分抽帧快放，段间暗场过渡，末尾接片尾卡。
-合集的调色板也按段分：整部共用一张的话，熔岩外那圈橙色辉光只分到几个颜色，一圈圈断开。
-ffmpeg 的 concat 拼不好带不同调色板的帧，所以各段单独编码，再在字节层把后几段的全局色表
-改写成各帧的局部色表拼起来。
+**Reel** (`reel.py`). One excerpt per clip, with the uneventful parts sped up by dropping frames, dark
+transitions between clips and an end card at the finish. The reel's palette is also per-clip: with one
+palette for the whole thing, the orange glow around the lava gets only a handful of colors and breaks
+into rings. ffmpeg's concat can't join frames with different palettes, so each clip is encoded
+separately and then, at the byte level, the later clips' global color tables are rewritten as
+per-frame local color tables and stitched together.
 
-## 几个不显然的地方
+## Non-obvious things
 
-- **颗粒必须关。** 它让每个像素每帧都变，GIF 的帧间差分完全失效；256 色量化之后本来也看不见。
-- **主循环必须停。** 它按真实时间推进，混进来采样就不等距了——在限流的预览窗格里每秒还会插进一个 0.05 秒的步长。
-- **`toDataURL` 要和渲染在同一个任务里取。** 隔一个 `await` 缓冲区就被清了。
-- **升温和冰封只让环境快放。** 采集时环境额外多推进两倍（`_dampEnv`），镜头和自转保持原速；整体快放的话行星会转过 200°，地表怎么变就看不清了。
-- **升温停在 800K。** 880K 往上整颗星白热过曝，泛光糊满全屏。
-- **首帧不能是黑的。** 公众号加载中、省电模式下只显示第一帧，所以只淡出不淡入，循环点是「暗下去，切回开头」。
-- **贴图是 CC BY 4.0。** 主视觉和合集片尾带了署名小字，手机上读不清，文章正文里要再写一遍。
+- **Grain has to be off.** It changes every pixel every frame, which defeats GIF's inter-frame
+  differencing entirely; after 256-color quantization it is invisible anyway.
+- **The main loop has to stop.** It advances on real time, and sampling on top of it is no longer
+  evenly spaced - in a throttled preview pane it also slips in a 0.05 second step once a second.
+- **`toDataURL` must be read in the same task as the render.** One `await` in between and the buffer
+  has already been cleared.
+- **Heating and freezing speed up the environment only.** Capture advances the environment an extra
+  2x (`_dampEnv`) while the camera and rotation stay at normal speed; speeding up everything would
+  turn the planet 200 degrees and you could not see what the surface was doing.
+- **Heating stops at 800K.** Above 880K the whole planet is white hot and blown out, and the bloom
+  smears across the entire frame.
+- **The first frame must not be black.** While loading, and in power saving mode, only the first frame
+  is shown - so there is a fade out but no fade in, and the loop point is "go dark, cut back to the
+  start".
+- **The textures are CC BY 4.0.** The hero clip and the reel's end card carry the attribution in small
+  type, which is unreadable on a phone, so it has to be repeated in the body of the article.
