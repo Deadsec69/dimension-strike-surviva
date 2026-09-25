@@ -205,7 +205,7 @@ export class Board {
       console.warn('[run] local fallback:', e.message);
       run.state = 'failed'; run.error = e.message;
       run.entry = { username:run.username, score:run.score, kills:run.kills, blocks:run.blocks, elapsed:run.elapsed, ending:run.ending,
-                    tier:run.tier, portrait:null, emotion:null, emotion_zh:null,
+                    tier:run.tier, portrait:null, emotion:null,
                     ts:new Date().toISOString(), local:true, id:'local-' + run.id };
       this.local.push(run.entry);
     }

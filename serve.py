@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""静态服务器 + 生存模式结算接口。
+"""Static file server plus the survival-mode scoring API.
 
-内置 http.server 不认 .mjs / .wasm 的 MIME，需补齐。
-结算：POST /api/finish 收一张抓拍，问 Gemini 读表情、按档生成画像，落盘 runs/，记榜单。
-密钥只从环境变量或同目录的 .env 读，永不进仓库、永不进页面；点文件一律不对外服务。
-只用标准库：仓库没有任何 pip 依赖，这里也不加。
+The built-in http.server doesn't know the MIME types for .mjs / .wasm, so they are filled in here.
+Scoring: POST /api/finish takes a snapshot, asks Gemini to read the emotion, generates a portrait for
+the tier, writes it under runs/ and records it on the board.
+The API key is read only from the environment or from a .env next to this file; it never enters the
+repository or the page, and dotfiles are never served.
+Standard library only: this repo has no pip dependencies and this file doesn't add any.
 """
 import sys, os, re, json, time, base64, threading
 import urllib.request, urllib.error, urllib.parse
@@ -15,11 +17,11 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 ROOT  = os.path.dirname(os.path.abspath(__file__))
 RUNS  = os.path.join(ROOT, 'runs')
 BOARD = os.path.join(RUNS, 'leaderboard.json')
-MAX_BODY  = 2 * 1024 * 1024        # 640×480 JPEG@0.85 约 60~120KB；2MB 是硬上限
-GOD_SCORE, DEMIGOD_SCORE = 250, 100   # 与 js/board.js 保持一致：五十颗 / 二十颗小行星的分（每颗 5，时间不给分）
+MAX_BODY  = 2 * 1024 * 1024        # a 640x480 JPEG at 0.85 is roughly 60-120KB; 2MB is the hard ceiling
+GOD_SCORE, DEMIGOD_SCORE = 250, 100   # kept in sync with js/board.js: fifty / twenty asteroids' worth (5 each, and time is worth nothing)
 TIERS = ('devil', 'human', 'demigod', 'god')
-IMAGE_ASPECT = '16:9'                                  # 横幅：人在中间三分之一，环境铺开
-IMAGE_SIZE = os.environ.get('GEMINI_IMAGE_SIZE', '1K')  # 1K 的 16:9 约 1344×768；2K 更锐但慢一倍
+IMAGE_ASPECT = '16:9'                                  # landscape: the person in the middle third, the setting spread around them
+IMAGE_SIZE = os.environ.get('GEMINI_IMAGE_SIZE', '1K')  # 1K at 16:9 is about 1344x768; 2K is sharper but twice as slow
 API = 'https://generativelanguage.googleapis.com/v1beta/'
 IMAGE_PREF = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-3-pro-image']
 TEXT_PREF  = ['gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite']
@@ -31,7 +33,7 @@ SimpleHTTPRequestHandler.extensions_map.update({
     '.task': 'application/octet-stream',
 })
 
-# ── .env：KEY=VALUE 行，# 注释，引号可选；已有的环境变量优先 ──
+# -- .env: KEY=VALUE lines, # comments, optional quotes; real environment variables win --
 def load_env():
     p = os.path.join(ROOT, '.env')
     if not os.path.exists(p): return
@@ -44,9 +46,10 @@ def load_env():
 
 def api_key(): return os.environ.get('GEMINI_API_KEY', '').strip()
 
-# ── Gemini 传输 ──
+# -- Gemini transport --
 def gcall(path, body=None, timeout=30):
-    """返回 (status, json)。HTTP 错误也返回 json 而不抛；只有网络 / 超时才抛。"""
+    """Returns (status, json). HTTP errors come back as json rather than raising; only network
+    failures and timeouts raise."""
     data = json.dumps(body).encode('utf-8') if body is not None else None
     req = urllib.request.Request(API + path, data=data, method='POST' if data else 'GET',
         headers={'x-goog-api-key': api_key(), 'Content-Type': 'application/json'})
@@ -59,8 +62,10 @@ def gcall(path, body=None, timeout=30):
 
 _mlock, _models, _discovering = threading.Lock(), None, False
 def models():
-    """从不阻塞：没列过就先用偏好首项（今天可用的两个），后台线程去列一次 /models 校准。
-    列表接口有时要一两分钟才回（实测 122s）——结算不能等它。"""
+    """Never blocks: before anything has been listed, use the first preference (the two that work
+    today) and let a background thread list /models once to calibrate.
+    The listing endpoint sometimes takes a minute or two to answer (122s measured) - scoring a run
+    cannot wait for it."""
     global _discovering
     if _models: return _models
     with _mlock:
@@ -74,11 +79,11 @@ def _discover():
     global _models, _discovering
     try:
         names, tok = set(), None
-        for _ in range(5):                                   # 分页保险
+        for _ in range(5):                                   # paging, just in case
             try:
                 st, r = gcall('models?pageSize=200' + (f'&pageToken={tok}' if tok else ''), timeout=20)
             except Exception as e:
-                print('列模型失败：' + repr(e), file=sys.stderr, flush=True); break
+                print('listing models failed: ' + repr(e), file=sys.stderr, flush=True); break
             if st != 200: break
             names.update(m['name'].split('/', 1)[-1] for m in r.get('models', []))
             tok = r.get('nextPageToken')
@@ -88,34 +93,34 @@ def _discover():
             return next((n for n in pref if n in names), pref[0])
         if names:
             _models = {'image': pick('GEMINI_IMAGE_MODEL', IMAGE_PREF), 'text': pick('GEMINI_TEXT_MODEL', TEXT_PREF)}
-            print(f'模型：text={_models["text"]} image={_models["image"]}', file=sys.stderr, flush=True)
+            print(f'models: text={_models["text"]} image={_models["image"]}', file=sys.stderr, flush=True)
     finally:
         _discovering = False
 
-# ── 表情：文本模型，严格 JSON，宽松解析 ──
+# -- Emotion: text model, strict JSON out, lenient parsing in --
 EMOTION_PROMPT = (
     "You are the observer console of a game. The photo is the player's face at the instant their run ended. "
     "Describe their facial emotion. Reply with ONLY a JSON object, no prose, no markdown fences: "
     '{"emotion":"<one or two lowercase English words, e.g. tense, relieved, smug, blank, amused, defeated, focused>",'
-    '"emotion_zh":"<两到四个汉字，如 紧绷 / 释然 / 得意 / 木然>","intensity":<integer 1-5>} '
-    'If no face is visible reply {"emotion":"absent","emotion_zh":"无人","intensity":0}.'
+    '"intensity":<integer 1-5>} '
+    'If no face is visible reply {"emotion":"absent","intensity":0}.'
 )
 _JSON = re.compile(r'\{.*\}', re.S)
 def parse_json_loose(text):
-    t = re.sub(r'^\s*```(?:json)?\s*|\s*```\s*$', '', text.strip())    # 剥 code fence
+    t = re.sub(r'^\s*```(?:json)?\s*|\s*```\s*$', '', text.strip())    # strip the code fence
     m = _JSON.search(t)
-    for cand in (t, m.group(0) if m else None):                        # 整段 → 首个 {…}
+    for cand in (t, m.group(0) if m else None):                        # the whole thing, then the first {...}
         if not cand: continue
         try: return json.loads(cand)
         except Exception: pass
-    m = re.search(r'"emotion"\s*:\s*"([^"]+)"', t)                    # 最后一道：正则抠字段
+    m = re.search(r'"emotion"\s*:\s*"([^"]+)"', t)                    # last resort: dig the field out with a regex
     return {'emotion': m.group(1)} if m else None
 
 def read_emotion(jpeg_b64):
     model = models()['text']
     if not model: raise RuntimeError('no text model')
     cfg = {'responseMimeType': 'application/json', 'temperature': 0.2}
-    if model.startswith('gemini-2.5'): cfg['thinkingConfig'] = {'thinkingBudget': 0}   # 读表情不需要思考，省几秒
+    if model.startswith('gemini-2.5'): cfg['thinkingConfig'] = {'thinkingBudget': 0}   # reading an expression needs no thinking, and this saves a few seconds
     st, r = gcall(f'models/{model}:generateContent', {
         'contents': [{'parts': [{'text': EMOTION_PROMPT},
                                 {'inline_data': {'mime_type': 'image/jpeg', 'data': jpeg_b64}}]}],
@@ -127,10 +132,11 @@ def read_emotion(jpeg_b64):
     e = str(d.get('emotion') or 'unreadable')[:24].lower()
     try: it = int(d.get('intensity') or 0)
     except Exception: it = 0
-    return {'emotion': e, 'emotion_zh': str(d.get('emotion_zh') or '')[:6], 'intensity': it}
+    return {'emotion': e, 'intensity': it}
 
-# ── 画像：三档提示词。保留本人的相貌与当下的表情；亮、清晰、好看；每档是一整套人物设定——
-#    装束、手里的东西、光效、背景——不只是换个背景 ──
+# -- Portraits: one prompt per tier. Keep the person's actual face and their expression at that moment;
+#    bright, sharp and flattering. Each tier is a complete character brief - wardrobe, what they are
+#    holding, the lighting, the setting - not just a different background. --
 STYLE = (" Composition: medium shot from the waist up, the person centered in a wide 16:9 cinematic frame, "
          "face in the central third and perfectly sharp, hands and any held props clearly visible and well drawn. "
          "Bright high-key photoreal digital painting in full HD detail. "
@@ -176,7 +182,8 @@ PORTRAIT = {
               "Lighting: bright, glowing, celestial; skin glowing softly. "
               "Mood: serene, benevolent, immense power held calmly. "),
 }
-# ── 强度：同一档里分越高，画面越猛。每档三级，按分数取；写进提示词的「Power level」段 ──
+# -- Intensity: within a tier, a higher score means a fiercer image. Three levels per tier, chosen by
+#    score, written into the prompt as its "Power level" paragraph. --
 POWER = {
     'human': [
         (0,   "Power level: a rookie — one pistol held low, a plain jacket, the control room dim and mostly quiet, "
@@ -216,8 +223,9 @@ def power_of(tier, score):
         if score >= at: lvl, text = i + 1, t
     return lvl, text
 
-# ── 亮度保底：模型偶尔交一张阴沉的图。Pillow 在这个仓库里是可选依赖（fetch-assets.sh 同样对待），
-#    有就把偏暗的图提亮一档，没有就靠提示词。 ──
+# -- Brightness floor: the model occasionally hands back a murky image. Pillow is an optional
+#    dependency in this repo (fetch-assets.sh treats it the same way): if it is present, dark images
+#    get lifted a stop; if not, the prompt has to carry it. --
 BRIGHT_MIN = 0.42
 def brighten(data, mime):
     try:
@@ -230,19 +238,19 @@ def brighten(data, mime):
         im = ImageEnhance.Brightness(im).enhance(k)
         im = ImageEnhance.Contrast(im).enhance(1.05)
         out = io.BytesIO(); im.save(out, 'JPEG', quality=92)
-        print(f'提亮：{lum:.2f} → ×{k:.2f}', file=sys.stderr, flush=True)
+        print(f'brightened: {lum:.2f} -> x{k:.2f}', file=sys.stderr, flush=True)
         return out.getvalue(), 'image/jpeg'
     except Exception:
         return data, mime
 
 def _image_part(parts):
     for p in parts:
-        d = p.get('inlineData') or p.get('inline_data')          # 响应是 camelCase，防一手 snake
+        d = p.get('inlineData') or p.get('inline_data')          # responses are camelCase; accept snake_case as a hedge
         if d and str(d.get('mimeType') or d.get('mime_type', '')).startswith('image/'):
             return base64.b64decode(d['data']), d.get('mimeType') or d.get('mime_type')
     return None
 
-def _walk_image(o):                                              # Interactions 响应：递归找 output_image / {mime_type,data}
+def _walk_image(o):                                              # Interactions responses: recurse looking for output_image / {mime_type,data}
     if isinstance(o, dict):
         if 'output_image' in o:
             r = _walk_image(o['output_image'])
@@ -259,12 +267,13 @@ def _walk_image(o):                                              # Interactions 
     return None
 
 def gen_portrait(jpeg_b64, tier, emotion, score=0):
-    """带强度段生成；模型偶尔对最猛的那段不出图（finishReason=NO_IMAGE），就退回不带强度段再试一次。"""
+    """Generate with the intensity paragraph; the model occasionally refuses to produce an image for
+    the fiercest one (finishReason=NO_IMAGE), so fall back to the prompt without it and retry once."""
     power = power_of(tier, score)[1]
     try: return _gen_portrait(jpeg_b64, tier, emotion, power)
     except RuntimeError as e:
         if 'NO_IMAGE' not in str(e) or not power: raise
-        print(f'画像：强度段被拒（{e}），退回基础提示词', file=sys.stderr, flush=True)
+        print(f'portrait: intensity paragraph refused ({e}), falling back to the base prompt', file=sys.stderr, flush=True)
         return _gen_portrait(jpeg_b64, tier, emotion, '')
 
 def _gen_portrait(jpeg_b64, tier, emotion, power):
@@ -272,7 +281,8 @@ def _gen_portrait(jpeg_b64, tier, emotion, power):
     if not model: raise RuntimeError('no image model')
     prompt = (PORTRAIT[tier] + power + STYLE).format(emotion=emotion or 'as seen in the photo')
     parts = [{'text': prompt}, {'inline_data': {'mime_type': 'image/jpeg', 'data': jpeg_b64}}]
-    # 1) 经典 generateContent。参数按梯子降级：带尺寸 → 只带宽高比 → 不带 imageConfig（老模型） → 要求带 TEXT
+    # 1) Classic generateContent. The parameters step down a ladder: with size -> aspect ratio only ->
+    #    no imageConfig at all (older models) -> also asking for TEXT
     last = ''
     ladder = [
         (['IMAGE'], {'aspectRatio': IMAGE_ASPECT, 'imageSize': IMAGE_SIZE}),
@@ -290,12 +300,12 @@ def _gen_portrait(jpeg_b64, tier, emotion, power):
             c = (r.get('candidates') or [{}])[0]
             img = _image_part(c.get('content', {}).get('parts', []))
             if img:
-                if icfg is None or 'imageSize' not in icfg: print(f'画像：参数降级到 {icfg}', file=sys.stderr, flush=True)
+                if icfg is None or 'imageSize' not in icfg: print(f'portrait: parameters stepped down to {icfg}', file=sys.stderr, flush=True)
                 return img
-            raise RuntimeError('no image part, finishReason=' + str(c.get('finishReason')))   # 安全拦截等
+            raise RuntimeError('no image part, finishReason=' + str(c.get('finishReason')))   # a safety block, among other things
         last = f'{st} {r.get("error", {}).get("message", "")[:160]}'
         if st not in (400, 404): raise RuntimeError(last)
-    # 2) 新的 Interactions 端点
+    # 2) The newer Interactions endpoint
     st, r = gcall('interactions', {'model': model, 'input': [
         {'type': 'text', 'text': prompt}, {'type': 'image', 'mime_type': 'image/jpeg', 'data': jpeg_b64}],
         'response_format': {'type': 'image', 'aspect_ratio': IMAGE_ASPECT, 'image_size': IMAGE_SIZE}}, timeout=90)
@@ -304,8 +314,8 @@ def _gen_portrait(jpeg_b64, tier, emotion, power):
     if not img: raise RuntimeError('interactions: no image in response')
     return img
 
-# ── 落盘 ──
-_SAFE = re.compile(r'[^\w\-]+')                                  # \w 含汉字：中文代号可进文件名
+# -- Writing to disk --
+_SAFE = re.compile(r'[^\w\-]+')                                  # \w covers non-ASCII letters, so a callsign in any script can be a filename
 def safe_name(s):
     s = _SAFE.sub('_', str(s or '').strip())[:16].strip('_')
     return s or 'anon'
@@ -319,7 +329,7 @@ def save_image(data, mime, username, tier):
         n += 1; path = os.path.join(RUNS, f'{base}-{n}{ext}')
     with open(path + '.tmp', 'wb') as f: f.write(data)
     os.replace(path + '.tmp', path)
-    return 'runs/' + urllib.parse.quote(os.path.basename(path))    # 汉字文件名要编码，否则 <img src> 会坏；相对路径以适应任何挂载点
+    return 'runs/' + urllib.parse.quote(os.path.basename(path))    # non-ASCII filenames need escaping or <img src> breaks; the path is relative so it works at any mount point
 
 _block = threading.Lock()
 def board_read():
@@ -327,13 +337,13 @@ def board_read():
         with open(BOARD, encoding='utf-8') as f: return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError): return []
 def board_append(entry):
-    with _block:                                                  # ThreadingHTTPServer：两局同时结算也不丢行
+    with _block:                                                  # ThreadingHTTPServer: two runs scoring at once must not lose a row
         rows = board_read(); rows.append(entry)
         os.makedirs(RUNS, exist_ok=True)
         tmp = BOARD + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(rows, f, ensure_ascii=False, indent=1); f.flush(); os.fsync(f.fileno())
-        os.replace(tmp, BOARD)                                    # 原子替换：读方永远看到完整 JSON
+        os.replace(tmp, BOARD)                                    # atomic replace: a reader always sees complete JSON
         return rows
 def board_update(entry_id, patch):
     with _block:
@@ -349,8 +359,10 @@ def board_update(entry_id, patch):
 def board_get(entry_id):
     return next((e for e in board_read() if e.get('id') == entry_id), None)
 def board_clear():
-    """清榜：榜上引用的画像文件一并删（只删 runs/ 里的），榜写成 []。
-    还在后台生成的画像：board_update 找不到 id 就不写回，落盘的那张成孤儿文件，下次清榜也不碰。"""
+    """Clear the board: the portrait files it references are deleted with it (only ones inside runs/),
+    and the board is written as [].
+    A portrait still generating in the background: board_update finds no matching id and writes
+    nothing back, so the file it saves is orphaned and later clears leave it alone."""
     with _block:
         rows = board_read(); removed = 0
         root = os.path.realpath(RUNS)
@@ -358,7 +370,7 @@ def board_clear():
             rel = e.get('portrait')
             if not rel: continue
             path = os.path.realpath(os.path.join(ROOT, rel))
-            if not path.startswith(root + os.sep): continue          # 只删 runs/ 里的
+            if not path.startswith(root + os.sep): continue          # only ever delete inside runs/
             try: os.remove(path); removed += 1
             except FileNotFoundError: pass
         tmp = BOARD + '.tmp'
@@ -367,7 +379,8 @@ def board_clear():
         os.replace(tmp, BOARD)
         return {'cleared': len(rows), 'files': removed}
 def board_top(rows, limit):
-    """榜：每个代号只留最好的一局（同分取最新），附 runs = 这个代号打过几局。所有局都还在文件里。"""
+    """The board keeps only each callsign's best run (ties go to the most recent), with runs = how many
+    that callsign has played. Every run is still in the file."""
     best = {}
     for e in sorted(rows, key=lambda e: (-e.get('score', 0), e.get('ts', ''))):
         k = str(e.get('username', '')).lower()
@@ -375,37 +388,38 @@ def board_top(rows, limit):
         best[k]['runs'] += 1
     return sorted(best.values(), key=lambda e: (-e.get('score', 0), e.get('ts', '')))[:limit]
 
-# ── 结算流水线：画像失败不算请求失败 ──
+# -- Scoring pipeline: a failed portrait is not a failed request --
 def finish(body):
     ending = body.get('ending')
-    if ending not in ('self', 'heat'): raise ValueError('ending 只能是 self | heat（中途退出不上报）')
+    if ending not in ('self', 'heat'): raise ValueError('ending must be self or heat (quitting mid-run is not reported)')
     username = safe_name(body.get('username'))
     score, kills, blocks = int(body.get('score') or 0), int(body.get('kills') or 0), int(body.get('blocks') or 0)
     elapsed = round(float(body.get('elapsed') or 0), 1)
     tier = body.get('tier') if body.get('tier') in TIERS else \
            ('devil' if ending == 'self' else 'god' if score >= GOD_SCORE else 'demigod' if score >= DEMIGOD_SCORE else 'human')
     snap = body.get('snapshot') or None
-    if snap and snap.startswith('data:'): snap = snap.split(',', 1)[1]     # 客户端传纯 base64；dataURL 也收
+    if snap and snap.startswith('data:'): snap = snap.split(',', 1)[1]     # the client sends plain base64; a dataURL is accepted too
     warn = []
     if not api_key(): warn.append('no_key')
     elif not snap:    warn.append('no_snapshot')
     pending = not warn
     entry = {'id': f'{int(time.time() * 1000):x}-{os.urandom(2).hex()}', 'username': username,
              'score': score, 'kills': kills, 'blocks': blocks, 'elapsed': elapsed, 'tier': tier,
-             'emotion': None, 'emotion_zh': None, 'portrait': None, 'pending': pending,
+             'emotion': None, 'portrait': None, 'pending': pending,
              'ts': datetime.now().astimezone().isoformat(timespec='seconds'), 'ending': ending}
-    rows = board_append(entry)                        # 分先入账、立刻回；画像在后台慢慢来（Gemini 有时要几分钟）
+    rows = board_append(entry)                        # bank the score and return at once; the portrait takes its time in the background (Gemini sometimes needs minutes)
     if pending: threading.Thread(target=_portrait_job, args=(entry['id'], snap, tier, username, score), daemon=True).start()
-    for w in warn: print('结算降级：' + w, file=sys.stderr, flush=True)
+    for w in warn: print('scoring degraded: ' + w, file=sys.stderr, flush=True)
     return {'entry': entry, 'leaderboard': board_top(rows, 10), 'warnings': warn}
 
 def _portrait_job(entry_id, snap, tier, username, score=0):
-    """后台：读表情 → 生成画像 → 提亮 → 落盘 → 改榜单里那一行。原片只在内存里，用完即弃。"""
+    """Background: read the emotion -> generate the portrait -> brighten -> write to disk -> update that
+    row on the board. The raw snapshot only ever lives in memory and is discarded when done."""
     emo, portrait, warn = None, None, []
     t0 = time.time()
     try: emo = read_emotion(snap)
     except Exception as e: warn.append(f'emotion: {e}')
-    for attempt in (1, 2):                           # 网络断一下（实测 Errno 51）不该白等二十分钟：重试一次
+    for attempt in (1, 2):                           # a momentary network drop (Errno 51, observed) shouldn't cost twenty minutes of waiting: retry once
         try:
             data, mime = gen_portrait(snap, tier, (emo or {}).get('emotion'), score)
             data, mime = brighten(data, mime)
@@ -415,9 +429,9 @@ def _portrait_job(entry_id, snap, tier, username, score=0):
             warn.append(f'portrait#{attempt}: {e}')
             if attempt == 1 and isinstance(e, (urllib.error.URLError, TimeoutError, OSError)): time.sleep(15); continue
             break
-    board_update(entry_id, {'emotion': (emo or {}).get('emotion'), 'emotion_zh': (emo or {}).get('emotion_zh'),
+    board_update(entry_id, {'emotion': (emo or {}).get('emotion'),
                             'portrait': portrait, 'pending': False, 'warnings': warn})
-    print(f'画像 {entry_id}：{"完成 " + str(portrait) if portrait else "失败"} {time.time() - t0:.0f}s' + (' ' + '; '.join(warn) if warn else ''),
+    print(f'portrait {entry_id}: {"done " + str(portrait) if portrait else "failed"} {time.time() - t0:.0f}s' + (' ' + '; '.join(warn) if warn else ''),
           file=sys.stderr, flush=True)
 
 class H(SimpleHTTPRequestHandler):
@@ -430,11 +444,11 @@ class H(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path, _, qs = self.path.partition('?')
-        if any(seg.startswith('.') for seg in path.split('/')):         # .env / .git / .claude 一律 404
+        if any(seg.startswith('.') for seg in path.split('/')):         # .env / .git / .claude and friends all 404
             return self._json(404, {'error': 'not found'})
         if path == '/api/health':
             has = bool(api_key())
-            # 探测要立刻回：models() 不阻塞，只是顺手把后台校准踢起来
+            # The probe has to answer immediately: models() doesn't block, it just kicks off the background calibration
             return self._json(200, {'ok': True, 'hasKey': has, 'models': models() if has else None, 'discovered': bool(_models), 'runs': len(board_read())})
         if path == '/api/leaderboard':
             try: limit = int((urllib.parse.parse_qs(qs).get('limit') or ['10'])[0])
@@ -454,19 +468,19 @@ class H(SimpleHTTPRequestHandler):
         if path != '/api/finish': return self._json(404, {'error': 'no such endpoint'})
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0: return self._json(400, {'error': 'empty body'})
-        if n > MAX_BODY:                                                  # 不读就答；HTTP/1.0 无 keep-alive，连接随后关闭
+        if n > MAX_BODY:                                                  # answer without reading; HTTP/1.0 has no keep-alive, so the connection closes after
             self.close_connection = True
             return self._json(413, {'error': f'body > {MAX_BODY} bytes'})
-        try: body = json.loads(self.rfile.read(n).decode('utf-8'))       # read(n) 读满 n 字节；2MB 内无压力
+        try: body = json.loads(self.rfile.read(n).decode('utf-8'))       # read(n) reads exactly n bytes; no trouble under 2MB
         except Exception: return self._json(400, {'error': 'bad json'})
         try: return self._json(200, finish(body))
         except ValueError as e: return self._json(400, {'error': str(e)})
         except Exception as e:
-            print('结算失败：' + repr(e), file=sys.stderr, flush=True)
+            print('scoring failed: ' + repr(e), file=sys.stderr, flush=True)
             return self._json(500, {'error': str(e)[:200]})
 
     def end_headers(self):
-        # MediaPipe 的 GPU delegate 在部分浏览器下需要跨源隔离
+        # MediaPipe's GPU delegate needs cross-origin isolation in some browsers
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'credentialless')
         self.send_header('Cache-Control', 'no-store')
@@ -477,5 +491,5 @@ class H(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     load_env()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
-    print('结算：GEMINI_API_KEY ' + ('已加载' if api_key() else '未设置——画像与表情将降级，榜单照记'), file=sys.stderr, flush=True)
+    print('scoring: GEMINI_API_KEY ' + ('loaded' if api_key() else 'not set - portraits and emotion will degrade, the board still records'), file=sys.stderr, flush=True)
     ThreadingHTTPServer(('127.0.0.1', port), partial(H, directory=ROOT)).serve_forever()
