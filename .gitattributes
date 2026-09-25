@@ -1,8 +1,8 @@
-# 默认按内容自动判定文本/二进制
+# Detect text vs binary by content by default
 * text=auto
 
-# 这几类必须是 LF：CRLF 的 shell 脚本在 Linux 上会报
-# "bad interpreter: /usr/bin/env bash^M"，而部署目标是 Linux
+# These must be LF: a CRLF shell script fails on Linux with
+# "bad interpreter: /usr/bin/env bash^M", and the deploy target is Linux
 *.sh   text eol=lf
 *.py   text eol=lf
 *.js   text eol=lf
@@ -12,6 +12,6 @@
 *.json text eol=lf
 *.md   text eol=lf
 
-# 二进制产物，不做任何行尾转换
+# Binary artifacts: no line-ending conversion at all
 *.wasm binary
 *.task binary

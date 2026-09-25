@@ -1,16 +1,17 @@
-# 本仓库（dimension-strike-survival）把运行时二进制（models/ textures/ vendor/wasm/）与 runs/ 一并入库；
-# fetch-assets.sh 仍可用（幂等，已存在就跳过）。只有密钥不进仓库。
+# This repo (dimension-strike-survival) commits the runtime binaries (models/ textures/ vendor/wasm/)
+# and runs/ along with the source; fetch-assets.sh still works (idempotent, skips what exists).
+# Only the API key stays out.
 
-# 宣传 GIF 的采集帧与成品（tools/promo-gif，单次约 1GB）
+# Promo GIF capture frames and output (tools/promo-gif, ~1GB per run)
 tools/promo-gif/out/
 
 __pycache__/
 .DS_Store
 Thumbs.db
 
-# 生存结算的密钥：只在本机 .env，永不入库
+# Survival scoring API key: local .env only, never committed
 .env
 
-# 原始屏幕录像不入库（GitHub 单文件上限 100MB）；压缩后的演示视频放 docs/
+# Raw screen recordings stay out (GitHub's 100MB per-file limit); the compressed demo video lives in docs/
 *.mov
 *.webm
