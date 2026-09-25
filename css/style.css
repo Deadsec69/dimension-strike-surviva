@@ -1,6 +1,6 @@
-/* 降维打击模拟器 — 高维观测者控制台
-   色彩叙事：琥珀 = 他们（文明信号）  冷蓝 = 你（观测者）
-   文明消亡时 --amber-live 由 JS 向 --dead 收敛，琥珀从界面抽干。 */
+/* Dimensional Strike - high-dimensional observer console
+   Color narrative: amber = them (the civilization's signal)  cold blue = you (the observer)
+   As the civilization dies, JS drains --amber-live toward --dead: the amber bleeds out of the UI. */
 
 :root{
   --void:#05070A;
@@ -18,7 +18,7 @@
   --amber-live:#E8B04B;
   --alert:#D9553F;
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Consolas","Liberation Mono",monospace;
-  --cjk:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;   /* 界面是英文了；变量名留着 */
+  --ui:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   --pad:clamp(14px,2.2vw,22px);
 }
 
@@ -26,10 +26,10 @@
 html,body{height:100%}
 body{
   margin:0; background:var(--void); color:var(--ink);
-  font-family:var(--cjk); font-size:14px; line-height:1.55;
+  font-family:var(--ui); font-size:14px; line-height:1.55;
   overflow:hidden; -webkit-font-smoothing:antialiased;
 }
-/* grab 光标是「这东西可以拿起来转」唯一的预告，别省 */
+/* The grab cursor is the only hint that this thing can be picked up and turned. Keep it. */
 #stage{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:grab}
 #stage.is-grabbing{cursor:grabbing}
 
@@ -38,7 +38,7 @@ body{
   background:radial-gradient(ellipse 120% 90% at 50% 50%, transparent 30%, rgba(0,0,0,.55) 100%);
 }
 
-/* ── 标题 ───────────────────────────────── */
+/* -- Title ------------------------------------ */
 .brand{
   position:fixed; z-index:3; top:0; left:0;
   padding:calc(var(--pad) + env(safe-area-inset-top,0px)) var(--pad) var(--pad);
@@ -58,7 +58,7 @@ body{
 .brand-credit a{color:inherit; text-decoration:underline; text-underline-offset:2px}
 .brand-credit a:hover{color:var(--cold)}
 
-/* ── 面板通用 ───────────────────────────── */
+/* -- Panels, shared --------------------------- */
 .panel{
   position:fixed; z-index:3; width:clamp(232px,21vw,278px);
   background:var(--panel); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
@@ -71,8 +71,9 @@ body{
 .panel::before{top:-1px; left:-1px; border-right:0; border-bottom:0}
 .panel::after{bottom:-1px; right:-1px; border-left:0; border-top:0}
 .panel-left{left:var(--pad); top:50%; transform:translateY(-50%)}
-/* 右面板贴顶，给底下的摄像头面板让位：--cam-h 由 main.js 的 ResizeObserver 写入（摄像头收起就小）。
-   空间不够时先缩通讯记录、再缩榜，其余项不缩——榜在通讯记录上面，永远先看得见 */
+/* The right panel docks to the top and yields to the camera panel below it: --cam-h is written by
+   a ResizeObserver in main.js (small when the camera is collapsed). When space runs short the comms
+   log shrinks first, then the board; nothing else shrinks - the board sits above the log and stays visible. */
 .panel-right{right:var(--pad); top:var(--pad); max-height:calc(100vh - 3 * var(--pad) - var(--cam-h, 0px) - env(safe-area-inset-bottom,0px)); overflow:hidden}
 .panel-right > *{flex-shrink:0}
 .panel-right > .board,.panel-right > .log{flex:0 1 auto; min-height:0}
@@ -87,7 +88,7 @@ body{
 .panel-tag{font-family:var(--mono); font-size:9px; letter-spacing:.12em; color:var(--cold-dim)}
 .panel-tag.is-alert{color:var(--alert)}
 
-/* ── 滑块 ───────────────────────────────── */
+/* -- Sliders ---------------------------------- */
 .ctl{display:grid; grid-template-columns:1fr auto; gap:7px 8px}
 .ctl label{font-size:12px; color:var(--ink-2); letter-spacing:.06em}
 .ctl-val{font-family:var(--mono); font-size:15px; color:var(--cold); font-variant-numeric:tabular-nums}
@@ -107,7 +108,7 @@ body{
 }
 .ctl-ideal{color:var(--amber-live)}
 
-/* ── 目标读数 ───────────────────────────── */
+/* -- Target readout --------------------------- */
 .target-id{font-size:14px; letter-spacing:.06em}
 .target-id .num{font-family:var(--mono); color:var(--amber-live)}
 .target-sub{margin-top:3px; font-family:var(--mono); font-size:9px; letter-spacing:.06em; color:var(--ink-3)}
@@ -126,7 +127,8 @@ body{
   padding-bottom:7px; border-bottom:1px solid var(--line);
 }
 .log-src{font-family:var(--mono); font-size:9px; color:var(--ink-3); letter-spacing:.08em}
-/* 榜右上的「清榜」：第一下只是举起来（红色 CONFIRM?），4 秒内再按一下才清 */
+/* "Clear" at the top right of the board: the first click only arms it (red CONFIRM?);
+   a second click within 4s actually clears */
 .log-act{font:9px var(--mono); letter-spacing:.08em; color:var(--ink-3); background:transparent; border:0; padding:0; cursor:pointer}
 .log-act:hover{color:var(--ink)}
 .log-act.is-arm{color:var(--alert)}
@@ -135,8 +137,8 @@ body{
 .log-title.is-link{cursor:pointer} .log-title.is-link:hover{color:var(--ink)}
 .board li{cursor:pointer}
 
-/* ── 全榜弹窗：点榜标题 / 任一行打开；导出 CSV ── */
-.modal[hidden]{display:none}                                        /* .modal 的 display:flex 会压过 hidden 属性 */
+/* -- Full-board modal: opens on the board title or any row; exports CSV -- */
+.modal[hidden]{display:none}                                        /* .modal's display:flex would override the hidden attribute */
 .modal{position:fixed; z-index:6; inset:0; display:flex; align-items:center; justify-content:center; padding:var(--pad);
   background:rgba(3,5,8,.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px)}
 .modal-box{width:min(960px,100%); max-height:min(80vh,720px); display:flex; flex-direction:column; gap:12px;
@@ -148,7 +150,7 @@ body{
 .btable{width:100%; border-collapse:collapse; font:11px var(--mono); letter-spacing:.04em; color:var(--ink-2)}
 .btable th{position:sticky; top:0; background:var(--void-2); font-weight:600; font-size:9px; letter-spacing:.14em; color:var(--ink-3); text-align:left; padding:6px 8px; border-bottom:1px solid var(--line)}
 .btable td{padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:middle}
-.btable .r{text-align:right} .btable td.name{font-family:var(--cjk); color:var(--ink)} .btable td.score{color:var(--cold)}
+.btable .r{text-align:right} .btable td.name{font-family:var(--ui); color:var(--ink)} .btable td.score{color:var(--cold)}
 .btable tr.is-me td{color:var(--ink)} .btable tr.is-me td.name{color:var(--amber-live)}
 .btable .thumb{display:block; width:52px; height:29px; border:1px solid var(--line); overflow:hidden; background:var(--void-2)}
 .btable .thumb img{display:block; width:100%; height:100%; object-fit:cover}
@@ -166,7 +168,7 @@ body{
 .log li time{display:block; font-family:var(--mono); font-size:8.5px; color:var(--ink-3); letter-spacing:.08em; margin-bottom:2px}
 @keyframes logIn{from{opacity:0; transform:translateX(-6px)}to{opacity:1; transform:none}}
 
-/* ── 打击按钮 ───────────────────────────── */
+/* -- Strike buttons --------------------------- */
 .strike{
   position:fixed; z-index:3; left:50%; transform:translateX(-50%);
   bottom:calc(var(--pad) + env(safe-area-inset-bottom,0px));
@@ -193,7 +195,7 @@ body{
 .btn-ghost:hover{border-color:var(--cold); color:var(--ink)}
 .btn-sm{width:100%; padding:6px 10px; font-size:10px}
 
-/* ── 摄像头 ─────────────────────────────── */
+/* -- Camera ----------------------------------- */
 .cam{
   position:fixed; z-index:3; right:var(--pad);
   bottom:calc(var(--pad) + env(safe-area-inset-bottom,0px));
@@ -204,7 +206,8 @@ body{
 .cam-min{margin-left:auto; width:18px; height:18px; padding:0; border:1px solid var(--line-2); background:transparent; color:var(--ink-3);
   font:12px/1 var(--mono); cursor:pointer; flex:none}
 .cam-min:hover{border-color:var(--cold); color:var(--ink)}
-/* 收起：只留头一行（标题 + 识别状态）。视频元素留在文档里继续播——识别器读的是元素，不是屏幕 */
+/* Collapsed: only the header row survives (title + recognizer state). The video element stays in the
+   document and keeps playing - the recognizer reads the element, not the screen */
 .cam.is-min{gap:0}
 .cam.is-min .cam-body{height:0; aspect-ratio:auto; border:0}
 .cam.is-min #camBtn,.cam.is-min #userName,.cam.is-min #survivalBtn{display:none!important}
@@ -221,17 +224,18 @@ body{
 }
 .cam.is-live .cam-hint{display:none}
 
-/* ── 全屏效果 ───────────────────────────── */
+/* -- Full-screen effects ---------------------- */
 .flash{position:fixed; inset:0; z-index:4; pointer-events:none; background:#fff; opacity:0}
 .verdict{
   position:fixed; z-index:5; inset:0; pointer-events:none;
   display:flex; align-items:center; justify-content:center;
   padding:var(--pad); opacity:0; transition:opacity 1.6s ease;
-  /* 压暗中心，保证判词压在任何亮部上都读得清 */
+  /* Darken the center so the verdict stays readable over any bright part of the planet */
   background:radial-gradient(ellipse 58% 34% at 50% 50%, rgba(3,5,8,.90) 18%, rgba(3,5,8,.55) 55%, transparent 78%);
 }
 .verdict.is-on{opacity:1}
-/* 判词整体不吃指针，只有出口那颗按钮吃——别让整块遮罩挡住下面的星球 */
+/* The verdict layer ignores pointer events; only the exit button takes them - don't let the
+   whole overlay block the planet underneath */
 .verdict-box{display:flex; flex-direction:column; align-items:center; gap:26px}
 .verdict.is-on #again{pointer-events:auto}
 #again{opacity:.72; transition:opacity .3s ease}
@@ -239,54 +243,57 @@ body{
 .verdict p{
   margin:0; max-width:30ch; text-align:center; font-size:clamp(15px,2.3vw,20px);
   line-height:2.1; letter-spacing:.1em; color:var(--ink);
-  white-space:pre-line;               /* 判词里的换行是设计的一部分 */
+  white-space:pre-line;               /* the line breaks in the verdict are part of the design */
   text-shadow:0 2px 24px rgba(0,0,0,.95);
 }
 
-/* ── 生存模式 ──────────────────────────────────────────── */
-/* 准星。z=2：压在画布与暗角之上、面板之下。位置与进度由 survival.js 直接写，
-   不做 transition——One-Euro 已经滤过，再加过渡就是双重延迟。圆 = 指向射击，矩形 = 护盾（跟盾的形状）。 */
+/* -- Survival mode -------------------------------------- */
+/* The crosshair. z=2: above the canvas and vignette, below the panels. Position and progress are
+   written directly by survival.js with no transition - One-Euro already filtered it, and a transition
+   on top would be latency twice over. Circle = point-to-shoot, rectangle = shield (matching its shape). */
 .aim{
   position:fixed; z-index:2; left:0; top:0; width:64px; height:64px; margin:-32px 0 0 -32px;
   pointer-events:none; display:none; will-change:transform; --k:0; --aim-c:var(--cold);
 }
-.aim.is-point{display:block; --aim-c:var(--cold)}                 /* 瞄准：观测者的冷蓝 */
-.aim.is-shield{display:block; --aim-c:var(--amber); width:68px; height:46px; margin:-23px 0 0 -34px}   /* 护盾：给他们的东西，琥珀 */
+.aim.is-point{display:block; --aim-c:var(--cold)}                 /* aiming: the observer's cold blue */
+.aim.is-shield{display:block; --aim-c:var(--amber); width:68px; height:46px; margin:-23px 0 0 -34px}   /* the shield is something given to them: amber */
 .aim::before{content:""; position:absolute; inset:0; border-radius:50%; border:1px solid var(--aim-c); opacity:.5}
 .aim.is-shield::before{border-radius:4px}
-.aim::after{                                                      /* 停留进度：圆锥渐变只留 3px 一圈 */
+.aim::after{                                                      /* dwell progress: a conic gradient clipped to a 3px ring */
   content:""; position:absolute; inset:-2px; border-radius:50%;
   background:conic-gradient(var(--aim-c) calc(var(--k) * 360deg), transparent 0);
   -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
           mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
 }
-.aim.is-shield::after{                                            /* 矩形不走圆环：进度是底边上的一条线 */
+.aim.is-shield::after{                                            /* the rectangle has no ring: progress is a line along the bottom edge */
   inset:auto 0 -7px 0; height:2px; border-radius:1px; -webkit-mask:none; mask:none;
   background:linear-gradient(90deg, var(--aim-c) calc(var(--k) * 100%), transparent 0)}
 .aim.is-lock::before{opacity:1; box-shadow:0 0 12px rgba(111,168,214,.55)}
 .aim i{position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; background:var(--aim-c); box-shadow:0 0 8px var(--aim-c)}
 
-/* 熔毁预警：560K 起在画面正中喊，610K 转红急促。玩家盯着的是石头，不是左面板的读数 */
+/* Meltdown warning: shouts in the center of the screen from 560K, turns red and urgent at 610K.
+   The player is watching the rocks, not the readout in the left panel */
 .heat-warn{position:fixed; z-index:3; left:50%; top:18%; transform:translate(-50%,-50%); display:none; flex-direction:column; align-items:center; gap:4px;
   padding:10px 22px; border:1px solid var(--amber); background:rgba(10,15,21,.72); backdrop-filter:blur(10px); pointer-events:none;
-  font-family:var(--cjk); color:var(--amber); text-align:center; animation:heatPulse 1.1s ease-in-out infinite}
+  font-family:var(--ui); color:var(--amber); text-align:center; animation:heatPulse 1.1s ease-in-out infinite}
 .heat-warn b{font-size:18px; letter-spacing:.24em} .heat-warn span{font:10px var(--mono); letter-spacing:.18em; color:var(--ink-2)}
 .heat-warn.is-on{display:flex}
 .heat-warn.is-critical{border-color:var(--alert); color:var(--alert); animation-duration:.55s; box-shadow:0 0 28px rgba(217,85,63,.45)}
 
-/* 生存模式只在摄像头开着时存在：没有手就没有准星 */
-/* 观测者代号：只在摄像头开着时出现（同 #survivalBtn），一局进行中锁住 */
+/* Survival mode only exists while the camera is on: no hand, no crosshair */
+/* Observer callsign: appears only with the camera on (same as #survivalBtn), locked during a run */
 #userName{display:none}
 .cam.is-live #userName{display:block}
 .cam-name{width:100%; padding:6px 10px; margin-top:6px; font:10px var(--mono); letter-spacing:.12em; color:var(--ink);
   background:transparent; border:1px solid var(--line-2); outline:0; box-sizing:border-box}
 .cam-name:focus{border-color:var(--cold)}
 .cam-name::placeholder{color:var(--ink-3)}
-body.is-survive .cam.is-live #userName{display:none}                /* 局中锁定，干脆不占地方（要压过上面的 id 选择器） */
+body.is-survive .cam.is-live #userName{display:none}                /* locked mid-run, so don't take up space (must beat the id selector above) */
 #survivalBtn:disabled{opacity:.35; cursor:not-allowed}
 
-/* 画像：判词上方一块方形。档位只改边框与光晕；降级（原片）时再叠一层同色调 */
-.portrait{display:none; position:relative; width:336px; height:189px; max-width:80vw; overflow:hidden;   /* 16:9：画像是横幅 */
+/* Portrait: a panel above the verdict. The tier only changes the border and glow; when degraded
+   (raw snapshot) an extra tint of the same hue is layered on */
+.portrait{display:none; position:relative; width:336px; height:189px; max-width:80vw; overflow:hidden;   /* 16:9: the portrait is a landscape banner */
   border:1px solid var(--line-2); background:var(--void-2); pointer-events:auto; --tint:transparent}
 .verdict.is-on .portrait.is-on{display:block}
 .portrait img{display:block; width:100%; height:100%; object-fit:cover}
@@ -303,32 +310,34 @@ body.is-survive .cam.is-live #userName{display:none}                /* 局中锁
 .portrait-meta{font-family:var(--mono); font-size:10px; letter-spacing:.22em; color:var(--ink-3); min-height:1.4em}
 .portrait-meta .tier{font-weight:600; letter-spacing:.24em}
 .tier.is-devil,.tag.is-devil{color:var(--alert)} .tier.is-god,.tag.is-god{color:var(--amber)} .tier.is-human,.tag.is-human{color:var(--cold)}
-.tier.is-demigod,.tag.is-demigod{color:#C9B27A}                           /* 半神：淡金，在冷蓝与琥珀之间 */
+.tier.is-demigod,.tag.is-demigod{color:#C9B27A}                           /* demigod: pale gold, between the cold blue and the amber */
 #survTier{font-size:11px; letter-spacing:.12em}
 
-/* 观测者榜：服务器在线（或本局已有本地行）就出现，不限生存模式——榜是给下一个人看的 */
+/* Observer board: shows whenever the server is up (or this session has local rows), not only in
+   survival mode - the board is there for whoever plays next */
 #boardTitle,#board{display:none}
 body.has-board #boardTitle{display:flex}
 body.has-board #board{display:flex}
-body.has-board .log{max-height:min(16vh,120px)}                    /* 给榜让位 */
+body.has-board .log{max-height:min(16vh,120px)}                    /* make room for the board */
 .board{list-style:none; margin:0; padding:0; flex-direction:column; gap:5px; max-height:min(24vh,210px); overflow-y:auto; scrollbar-width:thin}
 .board li{display:grid; grid-template-columns:16px 44px 1fr auto auto; align-items:center; gap:7px;
   font-family:var(--mono); font-size:11px; color:var(--ink-2); font-variant-numeric:tabular-nums}
 .board .rank{font-size:9px; color:var(--ink-3)}
-.board .thumb{display:block; width:44px; height:25px; overflow:hidden; border:1px solid var(--line); background:var(--void-2); pointer-events:auto}   /* 16:9 缩略图 */
+.board .thumb{display:block; width:44px; height:25px; overflow:hidden; border:1px solid var(--line); background:var(--void-2); pointer-events:auto}   /* 16:9 thumbnail */
 .board .tag{font-size:8px; letter-spacing:.14em}
 .board .thumb img{display:block; width:100%; height:100%; object-fit:cover}
 .board .thumb.is-devil{border-color:var(--alert)} .board .thumb.is-god{border-color:var(--amber)} .board .thumb.is-demigod{border-color:#C9B27A}
-.board .thumb.is-pending{animation:heatPulse 1.2s ease-in-out infinite}   /* 画像还在生成 */
-.board .name{font-family:var(--cjk); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.board .thumb.is-pending{animation:heatPulse 1.2s ease-in-out infinite}   /* portrait still generating */
+.board .name{font-family:var(--ui); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .board .score{color:var(--cold)}
 .board li.is-me{color:var(--ink)} .board li.is-me .name{color:var(--amber-live)}
-.board li.is-local{opacity:.6}                                     /* 服务器不在：这一行只活在本页 */
+.board li.is-local{opacity:.6}                                     /* no server: this row only lives in this page */
 
 #survivalBtn,#survHint{display:none}
 .cam.is-live #survivalBtn{display:block}
 body.is-survive #survivalBtn{border-color:var(--alert); color:var(--ink)}
-/* 规则挂在标题下面（那块地方一直空着），摄像头一开就出现，局中也在——不占摄像头面板的高度 */
+/* The rules hang under the title (that area was always empty): they appear as soon as the camera is
+   on and stay during a run - costing the camera panel no height */
 body.cam-live #survHint{display:block}
 .brand-rules{margin-top:12px; max-width:430px; font:9.5px/1.7 var(--mono); letter-spacing:.04em; color:var(--ink-3)}
 .cam-note{font-size:9px; line-height:1.7; color:var(--ink-3); text-align:center; margin-top:6px}
@@ -336,32 +345,34 @@ body.cam-live #survHint{display:block}
 body.is-survive #nameNote,.cam.is-min #nameNote{display:none!important}
 
 #survTitle,#survOut{display:none}
-/* 生存模式下右面板更挤：间距收一点，宜居条与样本副标先让位 */
+/* The right panel is tighter in survival mode: trim the gaps, and the habitability bar and specimen
+   subtitle give way first */
 body.is-survive .panel-right{gap:10px}
 body.is-survive .panel-right .bar,body.is-survive .target-sub{display:none}
 body.is-survive #survTitle{display:flex}
-body.is-survive #survOut{display:grid; grid-template-columns:1fr 1fr; gap:6px 14px}   /* 2×3：英文标签三列挤不下 */
+body.is-survive #survOut{display:grid; grid-template-columns:1fr 1fr; gap:6px 14px}   /* 2x3: the English labels don't fit in three columns */
 .readout-surv dt,.readout-surv dd{white-space:nowrap}
 .readout-surv dd{font-size:12px}
-#survScore{color:var(--cold)}                        /* 得分是观测者的数字，冷蓝 */
+#survScore{color:var(--cold)}                        /* the score is the observer's number: cold blue */
 
-/* 环境由撞击驱动，滑块退成仪表；打击按钮同样退成图例——握拳 / 摊掌仍会发动
-   （按钮上写着的正是这两个手势），所以不能用 disabled：.btn-strike:disabled 的 30% 是「已打出」。 */
+/* Impacts drive the environment, so the sliders fall back to being gauges; the strike buttons become
+   a legend the same way - fist / open palm still fire (those are exactly the gestures printed on the
+   buttons), so they can't use disabled: .btn-strike:disabled at 30% means "already fired". */
 body.is-survive .ctl input[type=range],
 body.is-survive .btn-strike{pointer-events:none; opacity:.55}
 body.is-survive .panel-left .panel-tag{color:var(--alert)}
-.ctl-val.is-hot{color:var(--alert); text-shadow:0 0 12px rgba(217,85,63,.55)}      /* 再挨两下 */
-.ctl-val.is-critical{animation:heatPulse .9s ease-in-out infinite}                 /* 再挨一下 */
+.ctl-val.is-hot{color:var(--alert); text-shadow:0 0 12px rgba(217,85,63,.55)}      /* two more hits to go */
+.ctl-val.is-critical{animation:heatPulse .9s ease-in-out infinite}                 /* one more hit to go */
 @keyframes heatPulse{50%{opacity:.45}}
 
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important; transition-duration:.01ms!important}
 }
 
-/* ── 窄屏 ───────────────────────
-   手机上两块面板加按钮会吃光整屏，行星——整个作品的主体——只剩一条缝。
-   所以压缩面板：读数改横排、通讯记录只留最新一条、隐藏次要说明，
-   把屏幕中段整段让给行星。 */
+/* -- Narrow screens -------------
+   On a phone, two panels plus the buttons eat the whole screen and the planet - the subject of the
+   whole piece - is left with a sliver. So compress the panels: readouts go horizontal, the comms log
+   keeps only its latest line, secondary notes hide, and the middle band of the screen goes to the planet. */
 @media (max-width:900px){
   :root{--pad:12px}
   .cam{display:none}
@@ -374,7 +385,7 @@ body.is-survive .panel-left .panel-tag{color:var(--alert)}
   .panel{position:fixed; width:auto; transform:none; padding:10px 12px; gap:9px}
   .panel-title{padding-bottom:7px; font-size:10px}
 
-  /* 监测面板贴顶，读数横排 */
+  /* Monitor panel docks to the top, readouts in a row */
   .panel-right{
     left:var(--pad); right:var(--pad); bottom:auto;
     top:calc(52px + env(safe-area-inset-top,0px)); max-height:none;
@@ -386,11 +397,11 @@ body.is-survive .panel-left .panel-tag{color:var(--alert)}
   .readout dt{font-size:9.5px}
   .readout dd{font-size:14px}
   .log-title{font-size:9px; padding-bottom:5px}
-  .log{max-height:none; height:2.9em; overflow:hidden}   /* 只露最新一条 */
+  .log{max-height:none; height:2.9em; overflow:hidden}   /* show only the latest line */
   .log li{font-size:10.5px; line-height:1.4}
   .log li time{display:none}
 
-  /* 控制面板贴底，压在打击按钮之上 */
+  /* Control panel docks to the bottom, above the strike buttons */
   .panel-left{
     left:var(--pad); right:var(--pad); top:auto;
     bottom:calc(58px + var(--pad) + env(safe-area-inset-bottom,0px));
@@ -401,7 +412,7 @@ body.is-survive .panel-left .panel-tag{color:var(--alert)}
   .ctl-scale{font-size:8.5px}
   .btn-ghost{padding:6px 10px; font-size:10px}
 
-  /* 打击按钮定死在最底一行，文字不许折行 */
+  /* Strike buttons pinned to the bottom row, no text wrapping */
   .strike{bottom:calc(var(--pad) + env(safe-area-inset-bottom,0px)); left:var(--pad); right:var(--pad); transform:none}
   .strike-row{justify-content:center; gap:8px}
   .btn-strike{flex:1 1 0; min-width:0; padding:8px 10px; gap:8px; justify-content:center}
