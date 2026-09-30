@@ -34,6 +34,12 @@ const SPAWN_JIT  = 0.35;                // interval +/-35%, to kill the metronom
 const V_JIT      = 0.15;
 const G          = 0.12;                // constant centripetal acceleration (units/s^2): off-center paths curve into arcs and slow rocks keep speeding up. Real gravity would be nearly zero at 2.8 and blow up near the surface
 const AIM_SPREAD = 0.75;                // aim inside a disc of radius 0.75 on the facing plane: always a hit (<1), but not every rock heading dead center
+/* Keeping rocks out from behind the HUD. The panels are drawn above the canvas and the crosshair sits
+   below them, so anything approaching under one is both invisible and unshootable. */
+const HUD_SEL = ['.panel-left', '.panel-right', '.strike', '.cam', '.brand'];
+const HUD_PAD = 26;                     // px of clearance, so a rock doesn't graze a panel edge either
+const PATH_SAMPLES = [2.2, 1.8, 1.4, 1.05];   // radii along the approach where the player has to see it
+const SPAWN_TRIES = 16;
 const R_MIN = 0.05, R_MAX = 0.13;       // roughly 37 to 97 px across at 1080p: big enough to point at, small enough not to block the view
 /* -- Temperature / pressure -- */
 const HEAT_BASE = 6, HEAT_K = 3600;     // dT = 6 + 3600*r^2: 9K to 67K. With r^3 a small rock may as well not have hit
@@ -66,7 +72,7 @@ const SHARD_LIFE = [0.35, 0.6];
       If the planet dies before you do the score still stands, it just doesn't get that +20 -- */
 const KILL_POINTS = 5, BLOCK_POINTS = 2, SELF_BONUS = 4 * KILL_POINTS;
 /* -- Effects -- */
-const ENTRY_R0 = 1.7, ENTRY_R1 = 1.05;  // the entry glow starts burning at radius 1.7 and is at full strength by the surface
+const ENTRY_R0 = 2.7, ENTRY_R1 = 1.05;  // the entry glow starts burning essentially at the spawn ring and is at full strength by the surface
 const BEAM_LIFE = 0.18, BEAM_W = 0.035, BEAM_POOL = 3;
 const BURST_N = 256, BURST_PER = 20;    // ring buffer: plenty for a dozen bursts at once
 const HOT  = new THREE.Color(1.0, 0.45, 0.15).multiplyScalar(2.2);
@@ -135,15 +141,21 @@ ${NOISE}
 void main(){
   vec3 N = normalize(vN), L = normalize(uLightDir), V = normalize(cameraPosition - vW);
   float d = fbm3(vObj * 3.1 + vSeed * 17.3) * 0.5 + 0.5;
-  vec3 rock = mix(vec3(0.085, 0.072, 0.064), vec3(0.24, 0.20, 0.17), d);   // albedo <0.3, well under the bloom threshold
+  vec3 rock = mix(vec3(0.115, 0.082, 0.068), vec3(0.30, 0.22, 0.17), d);   // warm and a touch brighter, still under the bloom threshold
   float ndl = max(dot(N, L), 0.0);
   vec3 lit = rock * (0.045 + 1.15 * ndl);                                  // leave a little skylight on the night side so it isn't a silhouette
   float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
   lit += vec3(0.05, 0.08, 0.14) * rim * 0.6;                               // cold blue rim: ambient light from the observer's world
+  // Always-on ember. Without it a rock still far out is a grey lump on a black field - it has to read
+  // as something falling and hot from the moment it is on screen, and the rim weighting keeps the
+  // silhouette legible where it matters.
+  lit += vec3(1.00, 0.26, 0.06) * (0.11 + 0.20 * d) * (0.40 + 0.60 * rim);
   // Atmospheric entry: the side facing the planet ignites first (that is the leading face, so no velocity needs passing in)
   float lead = smoothstep(-0.25, 0.75, dot(N, normalize(-vW)));
   float h = vHeat * vHeat;
-  lit += mix(vec3(1.0, 0.30, 0.06), vec3(1.0, 0.72, 0.40), h) * lead * h * 2.8;   // above 1.1 this goes to bloom
+  // Hold the hot end orange-red rather than letting it run to yellow-white: past the bloom threshold a
+  // white core spreads into a blob and the rock's silhouette is lost, which is the opposite of legible.
+  lit += mix(vec3(1.0, 0.28, 0.05), vec3(1.0, 0.50, 0.20), h) * lead * h * 2.2;   // above 1.1 this goes to bloom
   gl_FragColor = vec4(lit, 1.0);
 }
 `;
@@ -240,7 +252,7 @@ export class Survival {
     this.group = new THREE.Group();
 
     this._v1 = new THREE.Vector3(); this._v2 = new THREE.Vector3();
-    this._v3 = new THREE.Vector3(); this._v4 = new THREE.Vector3();
+    this._v3 = new THREE.Vector3(); this._v4 = new THREE.Vector3(); this._v5 = new THREE.Vector3();
     this._q = new THREE.Quaternion(); this._m = new THREE.Matrix4();
     this._s = new THREE.Vector3(); this._size = new THREE.Vector2(1, 1);
     this._pr = new THREE.Vector3();
@@ -336,6 +348,7 @@ export class Survival {
       heat:0, T:T0, P:1, platesMade:0, elapsed:0, kills:0, blocks:0, impacts:0, score:0, over:false,
       t:0, fxT:0, spawnT:1.2, seq:0,
       level:0, curV:STAGES[0].v, curIv:STAGES[0].iv, curDbl:0,   // level = difficulty step (this.stage is the PlanetStage)
+      hud:null, hudT:-1e9,
       cur:null, aimAt:0, target:null, dwell:0, gap:0, shieldK:0, vGap:1, fireCool:0,
       ending:null
     });
@@ -456,13 +469,58 @@ export class Survival {
     }
   }
 
+  /* The HUD panels are opaque and sit above the canvas, so a rock whose approach crosses one simply
+     vanishes - and the crosshair is below them too, so it can't be shot either. Collect their screen
+     rects once per second and steer spawns away from them. Measured in CSS px, which is what
+     _project() returns against _size, because #stage is a fixed full-viewport canvas. */
+  _hudRects(){
+    if(this.fxT - this.hudT < 1 && this.hud) return this.hud;
+    this.hudT = this.fxT;
+    const out = [];
+    for(const sel of HUD_SEL){
+      for(const el of document.querySelectorAll(sel)){
+        const r = el.getBoundingClientRect();
+        if(r.width > 4 && r.height > 4 && getComputedStyle(el).visibility !== 'hidden')
+          out.push({ x0:r.left - HUD_PAD, y0:r.top - HUD_PAD, x1:r.right + HUD_PAD, y1:r.bottom + HUD_PAD });
+      }
+    }
+    return (this.hud = out);
+  }
+
+  /* How much of this approach the player cannot see: sample the path where the rock is close enough
+     to matter (2.2 down to 1.05) and count the samples that are either under a panel or outside the
+     viewport. Counting off-screen matters as much as counting panels - the frame is far wider than it
+     is tall, so a near-vertical approach stays invisible until it is almost on the planet, and
+     dodging the side panels would otherwise just trade one kind of invisibility for another. */
+  _hidden(dir, rects){
+    const W = this._size.x, H = this._size.y;
+    let n = 0;
+    for(const rad of PATH_SAMPLES){
+      const q = this._project(this._v4.copy(dir).multiplyScalar(rad), this._s);
+      const x = q.x * W, y = q.y * H;
+      if(q.z <= 0 || x < 0 || x > W || y < 0 || y > H){ n++; continue; }
+      for(const r of rects) if(x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1){ n++; break; }
+    }
+    return n;
+  }
+
   _spawn(){
     const cam = this.stage.camera;
     // Pick a ring on the plane through the planet's center perpendicular to the view axis: they come
     // in from the frame edge and stay inside the in-focus band of the depth of field
     const right = this._v1.setFromMatrixColumn(cam.matrixWorld, 0);
     const up    = this._v2.setFromMatrixColumn(cam.matrixWorld, 1);
-    const th = Math.random() * Math.PI * 2;
+    const rects = this._hudRects();
+    // Try angles until one comes in over open sky for its whole approach; keep the least-hidden if
+    // none is clear, so a cramped window still gets rocks rather than none
+    let th = 0, best = Infinity;
+    for(let i = 0; i < SPAWN_TRIES; i++){
+      const cand = Math.random() * Math.PI * 2;
+      this._v5.set(0, 0, 0).addScaledVector(right, Math.cos(cand)).addScaledVector(up, Math.sin(cand));
+      const n = this._hidden(this._v5, rects);
+      if(n < best){ best = n; th = cand; }
+      if(n === 0) break;
+    }
     const p = new THREE.Vector3().addScaledVector(right, Math.cos(th) * SPAWN_R).addScaledVector(up, Math.sin(th) * SPAWN_R);
     // Aim at a point on that disc rather than the center: still a guaranteed hit (0.75 < 1), and the
     // paths aren't all rays converging on one point
