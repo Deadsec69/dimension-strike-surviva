@@ -497,6 +497,14 @@ and middle clearly longer than ring and pinky - a half-curled ring finger or a V
 camera collapses the absolute lengths while leaving the ratio untouched. At 8 shields alive, a new one
 evicts the oldest.
 
+**Hold the finger upright and move your hand; don't aim it like a laser pointer.** The crosshair
+follows the fingertip's *position* in the camera frame, not the direction the finger points - angling
+the finger at a rock does nothing, moving your hand is what moves the crosshair. So the pose that
+works is an index finger straight up with the palm toward the camera, the hand moving around the
+frame. It is also the pose both recognition paths are built for (below), and the gain is 1.25, so the
+hand only has to cover the middle 80% of the camera frame to reach every edge of the screen - reaching
+with the whole arm makes tracking worse, not better.
+
 **Pointing needs a geometric test.** `Pointing_Up` only recognizes a vertical index finger and its
 score collapses when pointing at a corner of the screen. A soft score from fingertip-to-wrist distance
 (normalized by hand length) - index extended, the other three curled - is maxed with the classifier's
@@ -505,6 +513,10 @@ than sharing the palm's: the palm judges speed, the fingertip is the crosshair. 
 gain is 1.25, with y corrected by (viewport aspect / camera aspect) so a circle drawn by the hand is
 still a circle on screen (derivation: a displacement d is d/W and d/H in the camera frame, and equal
 distances on screen require gy = gx * viewport aspect / camera aspect).
+Both scores fall together when the finger is tilted toward the camera: the classifier wants a vertical
+finger, and foreshortening shortens the measured tip-to-wrist distance against `EXT_UP`, so the
+geometric fallback that exists to cover the classifier drops out at the same moment. That is why an
+upright, in-plane finger tracks best, and why the player-facing rule above is worth stating.
 
 **Weapons stay live.** The classifier knows nothing about "modes", and disabling the fist would mean
 inventing another set of transition rules; besides, this is exactly where the tension comes from - a
