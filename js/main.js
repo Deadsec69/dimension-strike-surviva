@@ -18,7 +18,7 @@ const el = {
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
   heatWarn:$('heatWarn'),
-  userName:$('userName'), nameNote:$('nameNote'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
+  userName:$('userName'), nameNote:$('nameNote'), apiKey:$('apiKey'), keyNote:$('keyNote'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
   boardModal:$('boardModal'), boardRows:$('boardRows'), boardCsv:$('boardCsv'), boardClose:$('boardClose'), modalCount:$('modalCount'),
   boardClearModal:$('boardClearModal')
 };
@@ -333,6 +333,12 @@ new ResizeObserver(() => document.documentElement.style.setProperty('--cam-h', e
 board.probe();                                   // probe once on page load: the board isn't limited to survival mode
 // Observer callsign: required before a run, and the last one is remembered
 el.userName.value = localStorage.getItem('ds.username') || '';
+// The visitor's own Gemini key, remembered in their browser only
+try{ el.apiKey.value = localStorage.getItem('ds.apiKey') || ''; }catch{}
+el.apiKey.addEventListener('input', () => { try{
+  const v = el.apiKey.value.trim();
+  v ? localStorage.setItem('ds.apiKey', v) : localStorage.removeItem('ds.apiKey');
+}catch{} });
 const syncSurvivalBtn = () => {
   const name = el.userName.value.trim(), taken = !!name && board.isTaken(name);
   el.nameNote.hidden = !taken;

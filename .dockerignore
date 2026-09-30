@@ -1,0 +1,25 @@
+# The build context is the working directory, not the git tree - anything gitignored but present on
+# disk still gets copied unless it is listed here. A stray screen recording put 391MB in the image.
+.git
+.gitignore
+.gitattributes
+
+# Never bake a key into an image
+.env
+
+# Raw recordings and the demo video: large, and the site references none of them
+*.mov
+*.webm
+*.mp4
+docs/
+
+# Portraits are people's faces, and the board is per-deployment state that belongs on the
+# persistent disk, not in the image. serve.py recreates runs/ on first write.
+runs/
+
+tools/
+__pycache__/
+**/__pycache__/
+*.pyc
+.DS_Store
+node_modules/

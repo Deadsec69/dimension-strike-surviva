@@ -65,6 +65,47 @@ cannot do is custom response headers, so the COOP/COEP cross-origin isolation pa
 MediaPipe falls back to XNNPACK rather than the GPU delegate - gesture recognition still works, it
 just runs on the CPU.
 
+## Deploy it publicly
+
+The game already runs entirely on the visitor's machine - Three.js and MediaPipe use their GPU, CPU and
+camera, and the server does nothing for gameplay. It only serves the files (with the COOP/COEP headers
+that let MediaPipe use the GPU delegate) and makes about two Gemini calls per finished run.
+
+**Whose key pays.** Per run, in order:
+
+1. The **visitor's own key**, if they typed one into the optional field in the camera panel. It lives in
+   their browser, is sent only to this app's `/api/finish`, and is used for that request alone - never
+   logged, never written to `runs/`, never echoed back.
+2. Otherwise **your key**, while that visitor still has free credit (`DS_FREE_PORTRAITS`, default 1).
+3. Otherwise **no call at all**: the run still scores and the board still records it, and only the
+   portrait degrades to their raw snapshot tinted by tier.
+
+Your key stays in the server environment and is never sent to a browser in any of those branches.
+
+**Metering.** An HttpOnly `ds_uid` cookie is the visitor's identity, with a hashed IP + user-agent
+bucket behind it (`DS_FP_PER_DAY`) so clearing cookies doesn't mint unlimited free portraits, plus a
+global daily ceiling (`DS_GLOBAL_PER_DAY`) and a per-IP request rate (`DS_RUNS_PER_HOUR`). The raw IP is
+never stored, only a truncated hash. Be honest with yourself about what this is: deterrence, not
+enforcement. A fresh browser, incognito or a VPN earns another free generation. Real enforcement needs
+accounts. Heavier fingerprinting (canvas, fonts) is deliberately not used - privacy-hostile and still
+unreliable.
+
+**On Render** (`render.yaml` is a blueprint; any container host works):
+
+```bash
+# Blueprint -> point at this repo -> set GEMINI_API_KEY in the dashboard
+```
+
+Two things that will bite you otherwise:
+
+- **Mount a persistent disk at `/app/runs`.** It holds `leaderboard.json`, the generated portraits and
+  `quota.json`. Without it every redeploy wipes the board and refreshes everyone's free credit.
+- **`runs/` is excluded from the image** by `.dockerignore`. The portraits committed to this repo are
+  photographs of real people; publishing them at a public URL is not something to do by accident.
+
+HTTPS is mandatory for the camera, which every one of these hosts gives you. Locally nothing changes -
+`python serve.py 8123` still binds loopback; the server only listens on `0.0.0.0` when `PORT` is set.
+
 ## Deploying elsewhere
 
 Copy the whole directory to any web server. Three things have to be right:
