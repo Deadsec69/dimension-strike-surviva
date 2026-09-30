@@ -17,6 +17,7 @@
   --dead:#5A6773;
   --amber-live:#E8B04B;
   --alert:#D9553F;
+  --aim:#FF3B30;        /* the crosshair: a pure red that holds up over both the lit planet and black space */
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Consolas","Liberation Mono",monospace;
   --ui:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   --pad:clamp(14px,2.2vw,22px);
@@ -252,12 +253,15 @@ body{
    written directly by survival.js with no transition - One-Euro already filtered it, and a transition
    on top would be latency twice over. Circle = point-to-shoot, rectangle = shield (matching its shape). */
 .aim{
-  position:fixed; z-index:2; left:0; top:0; width:64px; height:64px; margin:-32px 0 0 -32px;
-  pointer-events:none; display:none; will-change:transform; --k:0; --aim-c:var(--cold);
+  /* z-index 4 puts it above the HUD panels (3). At 2 it slid under them, so the crosshair vanished
+     exactly where the right panel is - and with it any idea of where you were pointing. */
+  position:fixed; z-index:4; left:0; top:0; width:64px; height:64px; margin:-32px 0 0 -32px;
+  pointer-events:none; display:none; will-change:transform; --k:0; --aim-c:var(--aim);
 }
-.aim.is-point{display:block; --aim-c:var(--cold)}                 /* aiming: the observer's cold blue */
+.aim.is-point{display:block; --aim-c:var(--aim)}                  /* aiming: red, and fully opaque - this one has to be found instantly */
 .aim.is-shield{display:block; --aim-c:var(--amber); width:68px; height:46px; margin:-23px 0 0 -34px}   /* the shield is something given to them: amber */
-.aim::before{content:""; position:absolute; inset:0; border-radius:50%; border:1px solid var(--aim-c); opacity:.5}
+.aim::before{content:""; position:absolute; inset:0; border-radius:50%; border:2px solid var(--aim-c); opacity:1;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 14px color-mix(in srgb, var(--aim-c) 55%, transparent)}
 .aim.is-shield::before{border-radius:4px}
 .aim::after{                                                      /* dwell progress: a conic gradient clipped to a 3px ring */
   content:""; position:absolute; inset:-2px; border-radius:50%;
@@ -268,8 +272,9 @@ body{
 .aim.is-shield::after{                                            /* the rectangle has no ring: progress is a line along the bottom edge */
   inset:auto 0 -7px 0; height:2px; border-radius:1px; -webkit-mask:none; mask:none;
   background:linear-gradient(90deg, var(--aim-c) calc(var(--k) * 100%), transparent 0)}
-.aim.is-lock::before{opacity:1; box-shadow:0 0 12px rgba(111,168,214,.55)}
-.aim i{position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; background:var(--aim-c); box-shadow:0 0 8px var(--aim-c)}
+.aim.is-lock::before{border-width:3px; box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 0 20px var(--aim-c)}
+.aim i{position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px; background:var(--aim-c);
+  box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 0 10px var(--aim-c)}
 
 /* Meltdown warning: shouts in the center of the screen from 560K, turns red and urgent at 610K.
    The player is watching the rocks, not the readout in the left panel */

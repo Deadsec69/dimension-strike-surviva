@@ -140,15 +140,11 @@ export class Board {
     return v.slice(0, 16);
   }
 
-  /* Callsigns are unique: a name already on the board can't be reused - except the one this browser
-     last played under (that's you, and you may keep adding runs to your own row).
-     "Played" is recorded in ds.played at the moment a run is submitted, not from the input field:
-     merely typing someone else's name doesn't claim it. */
+  /* Callsigns are unique, strictly: any name already on the board blocks a new run, including the one
+     this browser last played under. Every run needs a fresh name. */
   isTaken(name){
     const k = String(name || '').trim().toLowerCase();
     if(!k) return false;
-    let mine = ''; try{ mine = (localStorage.getItem('ds.played') || '').toLowerCase(); }catch{}
-    if(k === mine) return false;
     return [...this.rows, ...this.local].some(e => String(e.username || '').toLowerCase() === k);
   }
 
@@ -181,7 +177,6 @@ export class Board {
       id:++this.seq, username:this.username(), ending, tier:tierOf(ending, score),
       score, kills, blocks, elapsed:+elapsed.toFixed(1), snapshot, state:'pending', entry:null
     };
-    try{ localStorage.setItem('ds.played', run.username); }catch{}   // this name is yours from now on
     this._submit(run);                // not awaited
     return run;
   }
