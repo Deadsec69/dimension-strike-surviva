@@ -4,11 +4,15 @@
 The built-in http.server doesn't know the MIME types for .mjs / .wasm, so they are filled in here.
 Scoring: POST /api/finish takes a snapshot, asks Gemini to read the emotion, generates a portrait for
 the tier, writes it under runs/ and records it on the board.
-The API key is read only from the environment or from a .env next to this file; it never enters the
-repository or the page, and dotfiles are never served.
+Keys. The owner's key is read only from the environment or a .env next to this file; it never enters
+the repository and is never sent to a browser. A visitor may instead supply their own key with a run,
+in which case it is used for that request and nothing else: never logged, never written to runs/, never
+echoed back. Without a key a visitor gets QUOTA_FREE generations on the owner's key, tracked by cookie
+with a hashed IP+UA bucket behind it; past that the run still scores and only the portrait degrades.
+Dotfiles are never served.
 Standard library only: this repo has no pip dependencies and this file doesn't add any.
 """
-import sys, os, re, json, time, base64, threading
+import sys, os, re, json, time, base64, threading, hashlib, secrets, http.cookies
 import urllib.request, urllib.error, urllib.parse
 from datetime import datetime
 from functools import partial
@@ -23,6 +27,11 @@ TIERS = ('devil', 'human', 'demigod', 'god')
 IMAGE_ASPECT = '16:9'                                  # landscape: the person in the middle third, the setting spread around them
 IMAGE_SIZE = os.environ.get('GEMINI_IMAGE_SIZE', '1K')  # 1K at 16:9 is about 1344x768; 2K is sharper but twice as slow
 API = 'https://generativelanguage.googleapis.com/v1beta/'
+QUOTA = os.path.join(RUNS, 'quota.json')
+QUOTA_FREE   = int(os.environ.get('DS_FREE_PORTRAITS', 1))    # owner-key generations per visitor, ever
+QUOTA_FP_DAY = int(os.environ.get('DS_FP_PER_DAY', 3))        # per IP+UA bucket per day: blunts cookie clearing
+QUOTA_DAY    = int(os.environ.get('DS_GLOBAL_PER_DAY', 60))   # ceiling on the owner's key across everyone
+RATE_HOUR    = int(os.environ.get('DS_RUNS_PER_HOUR', 30))    # finished runs per IP per hour, key or no key
 IMAGE_PREF = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-3-pro-image']
 TEXT_PREF  = ['gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite']
 
@@ -44,7 +53,13 @@ def load_env():
             k, v = line.split('=', 1)
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
-def api_key(): return os.environ.get('GEMINI_API_KEY', '').strip()
+_key_tls = threading.local()
+def api_key():
+    """The owner's key, unless the running thread carries a visitor's. _portrait_job sets the override
+    for its own thread, so every Gemini call underneath (models, emotion, portrait) picks it up without
+    threading a key argument through any of them."""
+    return (getattr(_key_tls, 'key', '') or os.environ.get('GEMINI_API_KEY', '')).strip()
+def use_key(k): _key_tls.key = (k or '').strip()
 
 # -- Gemini transport --
 def gcall(path, body=None, timeout=30):
@@ -388,8 +403,61 @@ def board_top(rows, limit):
         best[k]['runs'] += 1
     return sorted(best.values(), key=lambda e: (-e.get('score', 0), e.get('ts', '')))[:limit]
 
+def _atomic(path, obj):
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(obj, f, ensure_ascii=False); f.flush(); os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+def quota_read():
+    try:
+        with open(QUOTA, encoding='utf-8') as f: return json.load(f)
+    except Exception: return {}
+
+def visitor_fp(ip, ua):
+    """A coarse bucket behind the cookie, so clearing it doesn't hand out unlimited free generations.
+    Hashed and truncated: the raw IP is never stored."""
+    return hashlib.sha256(f'{ip}|{ua}'.encode('utf-8')).hexdigest()[:16]
+
+def quota_check(uid, fp, ip):
+    """What this visitor may do right now, without spending anything. Returns (ok_owner_key, why)."""
+    day = time.strftime('%Y-%m-%d')
+    q = quota_read()
+    if len(q.get('rate', {}).get(ip, [])) >= RATE_HOUR: return False, 'rate_limited'
+    if q.get('day') == day and q.get('global', 0) >= QUOTA_DAY: return False, 'daily_cap'
+    if q.get('fp', {}).get(fp, {}).get('day') == day and q['fp'][fp]['n'] >= QUOTA_FP_DAY:
+        return False, 'free_used'
+    if q.get('uid', {}).get(uid, 0) >= QUOTA_FREE: return False, 'free_used'
+    return True, ''
+
+def quota_spend(uid, fp, ip, owner_key_used):
+    """Record a finished run. Only an owner-key generation counts against the free allowances; a
+    visitor's own key costs them, not us, and only touches the per-IP request rate."""
+    day, now = time.strftime('%Y-%m-%d'), time.time()
+    with _block:
+        q = quota_read()
+        if q.get('day') != day: q = {'day': day, 'uid': q.get('uid', {}), 'fp': {}, 'global': 0, 'rate': {}}
+        q.setdefault('uid', {}); q.setdefault('fp', {}); q.setdefault('rate', {})
+        hits = [t for t in q['rate'].get(ip, []) if now - t < 3600]      # sliding hour
+        hits.append(now); q['rate'][ip] = hits[-RATE_HOUR:]
+        if owner_key_used:
+            q['uid'][uid] = q['uid'].get(uid, 0) + 1
+            f = q['fp'].get(fp) or {'day': day, 'n': 0}
+            if f.get('day') != day: f = {'day': day, 'n': 0}
+            f['n'] += 1; q['fp'][fp] = f
+            q['global'] = q.get('global', 0) + 1
+        if len(q['rate']) > 5000:                                        # keep the file small
+            q['rate'] = {k: v for k, v in q['rate'].items() if v and now - v[-1] < 3600}
+        os.makedirs(RUNS, exist_ok=True); _atomic(QUOTA, q)
+
+def quota_left(uid, fp, ip):
+    ok, _ = quota_check(uid, fp, ip)
+    if not ok: return 0
+    return max(0, QUOTA_FREE - quota_read().get('uid', {}).get(uid, 0))
+
 # -- Scoring pipeline: a failed portrait is not a failed request --
-def finish(body):
+def finish(body, who=None):
+    """who = (uid, fp, ip) identifying the visitor for the free allowance; None on a local run."""
     ending = body.get('ending')
     if ending not in ('self', 'heat'): raise ValueError('ending must be self or heat (quitting mid-run is not reported)')
     username = safe_name(body.get('username'))
@@ -399,22 +467,43 @@ def finish(body):
            ('devil' if ending == 'self' else 'god' if score >= GOD_SCORE else 'demigod' if score >= DEMIGOD_SCORE else 'human')
     snap = body.get('snapshot') or None
     if snap and snap.startswith('data:'): snap = snap.split(',', 1)[1]     # the client sends plain base64; a dataURL is accepted too
-    warn = []
-    if not api_key(): warn.append('no_key')
-    elif not snap:    warn.append('no_snapshot')
+    # Whose key pays for this portrait: the visitor's own if they brought one, otherwise the owner's
+    # while they still have free credit. Their key is used for this request only - it is never logged,
+    # never written to runs/ and never echoed back, and that is the whole reason it may be accepted.
+    visitor_key = str(body.get('apiKey') or '').strip()[:200]
+    warn, owner_key_used = [], False
+    if not snap:
+        warn.append('no_snapshot')
+    elif visitor_key:
+        pass                                           # their key, their quota
+    elif not os.environ.get('GEMINI_API_KEY', '').strip():
+        warn.append('no_key')
+    elif who:
+        ok, why = quota_check(*who)
+        if ok: owner_key_used = True
+        else:  warn.append(why)
+    else:
+        owner_key_used = True                          # local run, no visitor identity to meter
     pending = not warn
     entry = {'id': f'{int(time.time() * 1000):x}-{os.urandom(2).hex()}', 'username': username,
              'score': score, 'kills': kills, 'blocks': blocks, 'elapsed': elapsed, 'tier': tier,
              'emotion': None, 'portrait': None, 'pending': pending,
              'ts': datetime.now().astimezone().isoformat(timespec='seconds'), 'ending': ending}
     rows = board_append(entry)                        # bank the score and return at once; the portrait takes its time in the background (Gemini sometimes needs minutes)
-    if pending: threading.Thread(target=_portrait_job, args=(entry['id'], snap, tier, username, score), daemon=True).start()
+    if pending:
+        threading.Thread(target=_portrait_job,
+                         args=(entry['id'], snap, tier, username, score, visitor_key), daemon=True).start()
+    if who: quota_spend(*who, owner_key_used and pending)
     for w in warn: print('scoring degraded: ' + w, file=sys.stderr, flush=True)
-    return {'entry': entry, 'leaderboard': board_top(rows, 10), 'warnings': warn}
+    out = {'entry': entry, 'leaderboard': board_top(rows, 10), 'warnings': warn}
+    if who: out['freeLeft'] = quota_left(*who)
+    return out
 
-def _portrait_job(entry_id, snap, tier, username, score=0):
+def _portrait_job(entry_id, snap, tier, username, score=0, visitor_key=''):
     """Background: read the emotion -> generate the portrait -> brighten -> write to disk -> update that
-    row on the board. The raw snapshot only ever lives in memory and is discarded when done."""
+    row on the board. The raw snapshot only ever lives in memory and is discarded when done.
+    A visitor's key is scoped to this thread and dies with it; nothing here logs or persists it."""
+    use_key(visitor_key)
     emo, portrait, warn = None, None, []
     t0 = time.time()
     try: emo = read_emotion(snap)
@@ -440,7 +529,26 @@ class H(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(data)))
+        if getattr(self, '_set_uid', None):
+            self.send_header('Set-Cookie',
+                f'ds_uid={self._set_uid}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax')
         self.end_headers(); self.wfile.write(data)
+
+    def _client_ip(self):
+        # Behind a platform proxy the socket address is the proxy's; the first XFF hop is the client
+        xff = self.headers.get('X-Forwarded-For', '')
+        return (xff.split(',')[0].strip() if xff else self.client_address[0]) or '?'
+
+    def _who(self):
+        """(uid, fp, ip) for the free allowance. The cookie is the primary identity; the hashed IP+UA
+        bucket sits behind it so clearing cookies doesn't mint unlimited free portraits. This is
+        deterrence, not enforcement - a fresh browser or a VPN still earns another one."""
+        jar = http.cookies.SimpleCookie(self.headers.get('Cookie', ''))
+        uid = jar['ds_uid'].value if 'ds_uid' in jar else ''
+        if not re.fullmatch(r'[0-9a-f]{32}', uid or ''):
+            uid = secrets.token_hex(16); self._set_uid = uid
+        ip = self._client_ip()
+        return uid, visitor_fp(ip, self.headers.get('User-Agent', '')), ip
 
     def do_GET(self):
         path, _, qs = self.path.partition('?')
@@ -448,8 +556,11 @@ class H(SimpleHTTPRequestHandler):
             return self._json(404, {'error': 'not found'})
         if path == '/api/health':
             has = bool(api_key())
+            who = self._who()
             # The probe has to answer immediately: models() doesn't block, it just kicks off the background calibration
-            return self._json(200, {'ok': True, 'hasKey': has, 'models': models() if has else None, 'discovered': bool(_models), 'runs': len(board_read())})
+            return self._json(200, {'ok': True, 'hasKey': has, 'models': models() if has else None,
+                                    'discovered': bool(_models), 'runs': len(board_read()),
+                                    'freeLeft': quota_left(*who) if has else 0, 'freeTotal': QUOTA_FREE})
         if path == '/api/leaderboard':
             try: limit = int((urllib.parse.parse_qs(qs).get('limit') or ['10'])[0])
             except ValueError: limit = 10
@@ -473,7 +584,7 @@ class H(SimpleHTTPRequestHandler):
             return self._json(413, {'error': f'body > {MAX_BODY} bytes'})
         try: body = json.loads(self.rfile.read(n).decode('utf-8'))       # read(n) reads exactly n bytes; no trouble under 2MB
         except Exception: return self._json(400, {'error': 'bad json'})
-        try: return self._json(200, finish(body))
+        try: return self._json(200, finish(body, self._who()))
         except ValueError as e: return self._json(400, {'error': str(e)})
         except Exception as e:
             print('scoring failed: ' + repr(e), file=sys.stderr, flush=True)
@@ -490,6 +601,9 @@ class H(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     load_env()
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
+    # PORT and 0.0.0.0 are what a container platform needs; locally it still defaults to loopback.
+    port = int(os.environ.get('PORT') or (sys.argv[1] if len(sys.argv) > 1 else 8123))
+    host = os.environ.get('HOST') or ('0.0.0.0' if os.environ.get('PORT') else '127.0.0.1')
     print('scoring: GEMINI_API_KEY ' + ('loaded' if api_key() else 'not set - portraits and emotion will degrade, the board still records'), file=sys.stderr, flush=True)
-    ThreadingHTTPServer(('127.0.0.1', port), partial(H, directory=ROOT)).serve_forever()
+    print(f'serving {host}:{port}  free portraits per visitor: {QUOTA_FREE}', file=sys.stderr, flush=True)
+    ThreadingHTTPServer((host, port), partial(H, directory=ROOT)).serve_forever()

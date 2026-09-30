@@ -1,0 +1,28 @@
+# Render blueprint: one small web service, one persistent disk.
+#
+# Set GEMINI_API_KEY in the dashboard (marked sync:false so it is never committed). Without it the
+# board still records every run and portraits simply stay empty.
+#
+# The disk matters: runs/ holds leaderboard.json, the generated portraits and quota.json. Without
+# it every redeploy wipes the board and hands everyone their free portrait again.
+services:
+  - type: web
+    name: dimension-strike
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: runs
+      mountPath: /app/runs
+      sizeGB: 1
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DS_FREE_PORTRAITS      # owner-key generations per visitor, ever
+        value: "1"
+      - key: DS_FP_PER_DAY          # per IP+user-agent bucket per day, behind the cookie
+        value: "3"
+      - key: DS_GLOBAL_PER_DAY      # ceiling on your key across everyone
+        value: "60"
+      - key: DS_RUNS_PER_HOUR       # finished runs per IP per hour, key or no key
+        value: "30"

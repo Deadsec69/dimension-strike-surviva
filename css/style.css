@@ -294,6 +294,12 @@ body{
 .cam-name:focus{border-color:var(--cold)}
 .cam-name::placeholder{color:var(--ink-3)}
 body.is-survive .cam.is-live #userName{display:none}                /* locked mid-run, so don't take up space (must beat the id selector above) */
+/* The optional visitor key: same treatment as the callsign - camera on, hidden during a run */
+#apiKey,#keyNote{display:none}
+.cam.is-live #apiKey{display:block}
+body:not(.is-survive) .cam.is-live #keyNote{display:block}
+body.is-survive .cam.is-live #apiKey{display:none}
+#keyNote a{color:var(--cold)}
 #survivalBtn:disabled{opacity:.35; cursor:not-allowed}
 
 /* Portrait: a panel above the verdict. The tier only changes the border and glow; when degraded

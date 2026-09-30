@@ -135,6 +135,14 @@ export class Board {
     this.render(this.run?.entry); this._toggle();
   }
 
+  /* The visitor's own Gemini key, if they added one. It lives in their browser and is sent only to
+     this app's own /api/finish - never to Gemini from here, never anywhere else. */
+  apiKey(){
+    const v = (this.el.apiKey?.value || '').trim();
+    try{ v ? localStorage.setItem('ds.apiKey', v) : localStorage.removeItem('ds.apiKey'); }catch{}
+    return v;
+  }
+
   username(){
     const v = (this.el.userName?.value || '').trim() || localStorage.getItem('ds.username') || 'observer';
     return v.slice(0, 16);
@@ -183,7 +191,7 @@ export class Board {
 
   async _submit(run){
     const payload = { username:run.username, score:run.score, kills:run.kills, blocks:run.blocks, elapsed:run.elapsed,
-                      ending:run.ending, tier:run.tier, snapshot:run.snapshot };
+                      ending:run.ending, tier:run.tier, snapshot:run.snapshot, apiKey:this.apiKey() };
     try{
       // Ignore this.online: a slow probe shouldn't waste a whole run. With no server at all (Pages)
       // this 404s immediately and falls back the same way.
@@ -260,8 +268,15 @@ export class Board {
       portraitImg.src = portrait.href = 'data:image/jpeg;base64,' + run.snapshot;
       portrait.classList.add('is-raw');
     }else portrait.classList.add('is-none');
+    const REASON = { free_used:'\u2003· free portrait used — add your own key',
+                     daily_cap:'\u2003· daily portrait limit reached',
+                     rate_limited:'\u2003· too many runs just now',
+                     no_key:'\u2003· no key set', no_snapshot:'\u2003· no camera frame' };
+    const known = (e.warnings || []).map(w => REASON[w]).find(Boolean);
     const why = e.local ? (run.error === 'offline' || /Failed to fetch|404/.test(run.error || '') ? '\u2003· server offline' : '\u2003· not saved')
-              : (e.timeout ? '\u2003· portrait timed out' : (!e.portrait && e.warnings?.length ? '\u2003· portrait failed' : ''));
+              : (known ? known
+                 : e.timeout ? '\u2003· portrait timed out'
+                 : (!e.portrait && e.warnings?.length ? '\u2003· portrait failed' : ''));
     portraitMeta.replaceChildren(tierTag(),
       document.createTextNode(`\u2003Mood ${e.emotion || 'unread'}` + why));
   }
