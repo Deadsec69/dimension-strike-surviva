@@ -90,21 +90,41 @@ enforcement. A fresh browser, incognito or a VPN earns another free generation. 
 accounts. Heavier fingerprinting (canvas, fonts) is deliberately not used - privacy-hostile and still
 unreliable.
 
-**On Render** (`render.yaml` is a blueprint; any container host works):
+**Clearing the board is privileged.** It deletes every run and every portrait file, so it is never
+open to the world. `DS_ADMIN_TOKEN` set (as it is on Render, generated) means only a request carrying
+that token may clear, and the buttons stay hidden for everyone else. With no token set the server is
+assumed to be local and only loopback may clear - so nothing changes while you develop.
 
-```bash
-# Blueprint -> point at this repo -> set GEMINI_API_KEY in the dashboard
-```
+### Deploying on Render
 
-Two things that will bite you otherwise:
+`render.yaml` is a blueprint, so the service, the disk and the environment come from the repo. Any
+container host works the same way; the Dockerfile is plain.
 
-- **Mount a persistent disk at `/app/runs`.** It holds `leaderboard.json`, the generated portraits and
-  `quota.json`. Without it every redeploy wipes the board and refreshes everyone's free credit.
+1. Push to GitHub (Render reads the blueprint from the repo).
+2. Render → **New → Blueprint** → pick this repo. It reads `render.yaml` and proposes a web service
+   with a 1GB disk mounted at `/app/runs`.
+3. Set **`GEMINI_API_KEY`** when prompted - it is `sync: false`, so it is never committed. Leave it
+   blank and the board still records every run; portraits simply stay empty.
+4. Apply. The first build takes a few minutes (it clones the repo and builds the image).
+5. In the dashboard, copy the generated **`DS_ADMIN_TOKEN`**.
+6. Visit `https://<your-service>.onrender.com/?admin=<that token>` once. The token is stored in that
+   browser, stripped from the URL immediately, and the board's CLEAR controls appear for you alone.
+
+Tune the free allowance with `DS_FREE_PORTRAITS`, `DS_FP_PER_DAY`, `DS_GLOBAL_PER_DAY` and
+`DS_RUNS_PER_HOUR` from the same dashboard; they take effect on restart.
+
+Three things that will bite you otherwise:
+
+- **Keep the persistent disk at `/app/runs`.** It holds `leaderboard.json`, the portraits and
+  `quota.json`. Without one, every redeploy wipes the board and hands everyone a fresh free portrait.
+  Render's free tier has no disks and sleeps when idle, which is why the blueprint asks for Starter.
 - **`runs/` is excluded from the image** by `.dockerignore`. The portraits committed to this repo are
   photographs of real people; publishing them at a public URL is not something to do by accident.
+- **The build context is the directory, not the git tree.** A gitignored-but-present file still gets
+  copied unless `.dockerignore` lists it - a stray screen recording once put 391MB into the image.
 
-HTTPS is mandatory for the camera, which every one of these hosts gives you. Locally nothing changes -
-`python serve.py 8123` still binds loopback; the server only listens on `0.0.0.0` when `PORT` is set.
+HTTPS is mandatory for the camera, and every one of these hosts provides it. Locally nothing changes:
+`python serve.py 8123` still binds loopback, and the server only listens on `0.0.0.0` when `PORT` is set.
 
 ## Deploying elsewhere
 
