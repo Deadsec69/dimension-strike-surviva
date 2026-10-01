@@ -32,6 +32,7 @@ QUOTA_FREE   = int(os.environ.get('DS_FREE_PORTRAITS', 1))    # owner-key genera
 QUOTA_FP_DAY = int(os.environ.get('DS_FP_PER_DAY', 3))        # per IP+UA bucket per day: blunts cookie clearing
 QUOTA_DAY    = int(os.environ.get('DS_GLOBAL_PER_DAY', 60))   # ceiling on the owner's key across everyone
 RATE_HOUR    = int(os.environ.get('DS_RUNS_PER_HOUR', 30))    # finished runs per IP per hour, key or no key
+ADMIN_TOKEN  = os.environ.get('DS_ADMIN_TOKEN', '').strip()   # unset = clearing the board is loopback-only
 IMAGE_PREF = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-3-pro-image']
 TEXT_PREF  = ['gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite']
 
@@ -560,7 +561,8 @@ class H(SimpleHTTPRequestHandler):
             # The probe has to answer immediately: models() doesn't block, it just kicks off the background calibration
             return self._json(200, {'ok': True, 'hasKey': has, 'models': models() if has else None,
                                     'discovered': bool(_models), 'runs': len(board_read()),
-                                    'freeLeft': quota_left(*who) if has else 0, 'freeTotal': QUOTA_FREE})
+                                    'freeLeft': quota_left(*who) if has else 0, 'freeTotal': QUOTA_FREE,
+                                    'canClear': (not ADMIN_TOKEN) and self._client_ip() in ('127.0.0.1', '::1')})
         if path == '/api/leaderboard':
             try: limit = int((urllib.parse.parse_qs(qs).get('limit') or ['10'])[0])
             except ValueError: limit = 10
@@ -574,6 +576,15 @@ class H(SimpleHTTPRequestHandler):
     def do_POST(self):
         path = self.path.partition('?')[0]
         if path == '/api/leaderboard/clear':
+            # Clearing deletes every run and every portrait file on the disk, so it cannot be open to
+            # the world. With a token set, only a request carrying it may clear; with none set we are
+            # running locally and only loopback may, which is exactly the old behaviour.
+            if ADMIN_TOKEN:
+                sent = self.headers.get('X-Admin-Token', '')
+                allowed = secrets.compare_digest(sent, ADMIN_TOKEN)
+            else:
+                allowed = self._client_ip() in ('127.0.0.1', '::1')
+            if not allowed: return self._json(403, {'error': 'not allowed'})
             try: return self._json(200, {'ok': True, **board_clear()})
             except Exception as e: return self._json(500, {'error': str(e)[:200]})
         if path != '/api/finish': return self._json(404, {'error': 'no such endpoint'})

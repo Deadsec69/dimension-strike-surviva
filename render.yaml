@@ -18,6 +18,8 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      - key: DS_ADMIN_TOKEN        # Render generates one; read it in the dashboard. Clearing the
+        generateValue: true        # board requires it, so a visitor can never wipe your leaderboard.
       - key: DS_FREE_PORTRAITS      # owner-key generations per visitor, ever
         value: "1"
       - key: DS_FP_PER_DAY          # per IP+user-agent bucket per day, behind the cookie

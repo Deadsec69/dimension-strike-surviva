@@ -330,6 +330,28 @@ el.camMin.addEventListener('click', () => {
 });
 try{ if(localStorage.getItem('ds.camMin') === '1') el.camMin.click(); }catch{}
 new ResizeObserver(() => document.documentElement.style.setProperty('--cam-h', el.cam.offsetHeight + 'px')).observe(el.cam);
+/* The owner unlocks the board controls by opening the site once as /?admin=<token>. It is kept in this
+   browser and stripped from the URL straight away, so it never lingers in history or in a shared link. */
+try{
+  const q = new URLSearchParams(location.search), tok = q.get('admin');
+  if(tok){
+    localStorage.setItem('ds.admin', tok);
+    q.delete('admin');
+    history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+  }
+}catch{}
+
+/* The server says how much free portrait credit this visitor has; say so before they play rather than
+   letting them find out from a degraded card afterwards. */
+board.onCredit = (left, total, hasKey) => {
+  if(!el.keyNote) return;
+  const own = el.apiKey.value.trim();
+  el.keyNote.firstChild.textContent = own ? 'Using your key — portraits are billed to you. '
+    : !hasKey ? 'Portraits are off on this server. '
+    : left > 0 ? `${left} free portrait${left === 1 ? '' : 's'} left, then add your own key. `
+    : 'Free portrait used — add your own key for more. ';
+};
+
 board.probe();                                   // probe once on page load: the board isn't limited to survival mode
 // Observer callsign: required before a run, and the last one is remembered
 el.userName.value = localStorage.getItem('ds.username') || '';

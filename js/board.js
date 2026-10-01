@@ -50,6 +50,7 @@ export class Board {
     this._wireClear(this.el.boardClear, 'CLEAR', 'CONFIRM?');
     this._wireClear(this.el.boardClearModal, 'Clear board', 'Click again to confirm');
     this._wireModal();
+    this._syncClear();
   }
   _wireClear(btn, idle, armed){
     if(!btn) return;
@@ -127,12 +128,23 @@ export class Board {
      page's rows are cleared. */
   async clearBoard(){
     try{
-      const r = await fetch('api/leaderboard/clear', { method:'POST', signal:tmo(FINISH_MS) });
+      const tok = this.adminToken();
+      const r = await fetch('api/leaderboard/clear', { method:'POST', signal:tmo(FINISH_MS),
+                                                      headers: tok ? { 'X-Admin-Token': tok } : {} });
       if(r.ok) this.rows = [];
       else console.warn('[board] clear →', r.status);
     }catch(e){ console.warn('[board] clear failed:', e.message); }
     this.local = [];
     this.render(this.run?.entry); this._toggle();
+  }
+
+  /* The owner's admin token, if this browser was opened once with ?admin=<token>. Clearing the board
+     deletes every run and every portrait, so the controls stay hidden until a token is held and the
+     server checks it again anyway - this only keeps the button out of a visitor's way. */
+  adminToken(){ try{ return localStorage.getItem('ds.admin') || ''; }catch{ return ''; } }
+  _syncClear(){
+    const show = !!this.adminToken() || this.canClear;
+    for(const [btn] of this._clearBtns || []) btn.style.display = show ? '' : 'none';
   }
 
   /* The visitor's own Gemini key, if they added one. It lives in their browser and is sent only to
@@ -161,6 +173,9 @@ export class Board {
       const r = await fetch('api/health', { cache:'no-store', signal:tmo(PROBE_MS) });
       const j = r.ok ? await r.json() : null;            // Pages returns 404 HTML: check ok before parsing json
       this.online = !!j?.ok; this.hasKey = !!j?.hasKey;
+      this.canClear = !!j?.canClear;
+      this.freeLeft = j?.freeLeft ?? null; this.freeTotal = j?.freeTotal ?? 0;
+      this._syncClear(); this.onCredit?.(this.freeLeft, this.freeTotal, this.hasKey);
     }catch{ this.online = false; }
     this._toggle();
     if(this.online) await this.refresh();
