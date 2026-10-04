@@ -177,3 +177,37 @@ destroys the starter domain with the app. The hash in `<name>-<hash>.ondigitaloc
 creation and is not recoverable, so recreating the app later gives a **different URL** and every link
 already shared stops working. At $5/month, leaving it running costs about 17 cents a day; weigh that
 against a dead link before deleting something you intend to bring back.
+
+### Is the Gemini key reachable from the browser?
+
+No, and the audit trail is worth keeping. The value leaves the process exactly once, to Google, as the
+`x-goog-api-key` request header - a header rather than a URL, so it cannot land in a query string, a
+referer or a proxy log. `/api/health` reports it as `bool(api_key())`, never the value. Both 500
+handlers pass exception text through `scrub()` against the owner's key and the visitor's, and public
+board rows carry short codes while the detail goes to stderr. `.dockerignore` excludes `.env`, so no
+container has a file to read, and on App Platform the key is a `SECRET` env var that reads back only as
+`EV[1:...]` ciphertext.
+
+To re-audit rather than take the above on trust:
+
+```bash
+grep -n 'api_key()\|GEMINI_API_KEY' serve.py          # every use; line 82 is the only egress
+curl -s "$URL/api/health"                             # expect "hasKey": true, no key material
+curl -s -o /dev/null -w '%{http_code}\n' "$URL/%2Eenv"   # expect 404
+```
+
+Search git history by the key's **value**, not by a guessed prefix - Gemini keys are not all
+`AIza...`; current ones look like `AQ.<...>`, and a pattern-based scan for the wrong prefix returns a
+reassuring zero while proving nothing:
+
+```bash
+KEY=$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)
+git rev-list --objects --all | awk '{print $1}' \
+  | git cat-file --batch-check='%(objectname) %(objecttype)' \
+  | awk '$2=="blob"{print $1}' \
+  | while read -r o; do git cat-file blob "$o" | grep -qF "$KEY" && echo "$o"; done
+```
+
+What *is* consumable is the key's quota, by design: a visitor without their own key spends
+`DS_FREE_PORTRAITS` generations on yours. See `DS_GLOBAL_PER_DAY` - on an ephemeral filesystem it is
+the only ceiling a redeploy does not reset.

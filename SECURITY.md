@@ -22,6 +22,19 @@ Open an issue on the repository. There is no bounty and no SLA; this is a person
   forget to delete. On the platform side they are stored encrypted and read back only as `EV[1:...]`
   ciphertext; nothing retrieves a plaintext secret from a deployed app.
 
+## Fixed issues worth remembering
+
+- **Percent-encoding walked past the path guards** (fixed). `do_GET` screened the *raw* request path
+  for dotted segments and a `runs/` prefix, but `SimpleHTTPRequestHandler.translate_path` unquotes
+  before opening the file, so `/%2Eenv` returned `.env` (key included) and `/%72uns/<run>.jpg` returned
+  a player's portrait - both measured at 200 against a local server. The deployed site was shielded
+  only because App Platform's proxy normalises URLs before the container sees them, which is not a
+  property this code should depend on. The guards now run on `urllib.parse.unquote(path)`.
+
+  The lesson generalises: a check and the operation it protects must agree on the string they are
+  looking at. If a guard reads the request and the filesystem reads something derived from it, the
+  guard is advisory.
+
 ## What is not protected
 
 - Free-credit limits are deterrence. A fresh browser, incognito or a VPN earns another generation;
