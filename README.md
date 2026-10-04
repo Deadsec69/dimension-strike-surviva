@@ -221,7 +221,7 @@ add_header Cross-Origin-Embedder-Policy credentialless;
 | After "Turn on camera" | +19 MB | 9.5MB MediaPipe runtime plus an 8.4MB model |
 
 The gesture module goes through a dynamic `import()`, so visitors who never turn the camera on never
-download those 19MB. The WASM is about 3MB gzipped - make sure compression is on.
+download those 19MB. That split is the single biggest thing keeping the first paint small. The WASM is about 3MB gzipped - make sure compression is on.
 
 ## Browser support
 
