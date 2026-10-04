@@ -132,7 +132,8 @@ camera never starts.
 1. DigitalOcean → **Apps → Create App** → pick this repo. It reads [`.do/app.yaml`](.do/app.yaml).
 2. Set `GEMINI_API_KEY` and `DS_ADMIN_TOKEN` when prompted. They are declared `SECRET`, so they are
    stored encrypted and never committed. Generate the token with `openssl rand -hex 24`.
-3. Deploy. You get `https://<app>-<hash>.ondigitalocean.app`.
+3. Deploy. You get `https://<app>-<hash>.ondigitalocean.app`, with the hash assigned by
+   DigitalOcean. See the note on renaming below before you pick a name you care about.
 4. Visit `/?admin=<token>` once to reveal the board's CLEAR control.
 
 No domain, no DNS, no certificate management, no Caddy.
@@ -160,6 +161,15 @@ DS_UPDATE_SOURCES=1 bash deploy/do-apply.sh   # also rebuild from the git branch
 
 It generates `DS_ADMIN_TOKEN` on first run and appends it to `.env` so it stays stable across applies.
 A key that is missing from `.env` is left out of the spec entirely rather than sent as an empty secret.
+
+**The app name is not the hostname, and renaming cannot move it.** App Platform derives the starter
+subdomain from the app's name once, when the app is created, and then pins it. Renaming the app leaves
+the old prefix in place, and there is no way to regenerate the subdomain - the only way to a different
+URL is a new app. So this app is named `experimental` in the dashboard while still answering on
+`dimension-strike-qsn3g.ondigitalocean.app`, the name it was created under. That is the useful
+direction of the constraint: a rename is safe for a link you have already shared. The direction that
+bites is the other one - choose the name carefully at creation, because that is the only moment it
+decides anything.
 
 **The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
 storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
