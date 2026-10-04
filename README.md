@@ -877,3 +877,12 @@ scoring service and the deployment are added on top.
 
 Surface imagery from [Solar System Scope](https://www.solarsystemscope.com/textures/), CC BY 4.0.
 Gesture recognition by [MediaPipe](https://developers.google.com/mediapipe).
+
+## Security summary
+
+- The deployment's key lives only in the server environment and reaches Google in a request header. It
+  is never sent to a browser, and `/api/health` returns a boolean rather than the value.
+- A visitor's own key is used for their request and nothing else: not logged, not stored, not returned.
+- Public rows carry warning codes, never exception text, because error strings are how secrets escape.
+- Clearing the board needs `DS_ADMIN_TOKEN`; without one configured, only loopback may clear.
+- Portraits are served solely by `/api/portrait/:id`, which checks ownership. `runs/` is not static.
