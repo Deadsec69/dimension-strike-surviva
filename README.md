@@ -246,6 +246,15 @@ runs/               generated observer portraits and leaderboard.json (committed
 tools/promo-gif/    promo GIFs: frame-by-frame capture -> HUD overlays -> encode (see its own README; not deployed with the site)
 ```
 
+## Performance
+
+The planet shader runs twice a frame (colour, then the self-rendered depth map), on top of a 16-sample
+depth of field and five bloom levels. That is why the DPR is capped at 1.5 and then adapted from the
+measured frame interval, stepping down after a second above 22ms and back up after six below 13ms.
+
+If it still struggles, the post chain is where the time goes - bloom levels and depth-of-field samples
+before anything in the surface shader.
+
 ## Implementation notes
 
 A few traps already fallen into. Read these before changing things.
