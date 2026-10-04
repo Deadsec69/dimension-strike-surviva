@@ -37,3 +37,19 @@ with a hashed IP bucket behind it.
 
 **Specimen.** One civilization. Replaying moves to the next, numbered upward from 3,241 - you are not retrying, you
 are processing the next one.
+
+**Secure context.** The browser's precondition for `getUserMedia`: HTTPS, or `localhost`/`127.0.0.1`. On an
+insecure origin Chrome does not merely refuse the camera, it removes `navigator.mediaDevices` entirely - which is
+why a LAN IP looks like a broken build rather than a blocked permission. The whole gesture half of the game depends
+on clearing this bar, and it is the reason every deployment path here ends in a real certificate.
+
+**Starter domain.** The `<name>-<hash>.ondigitalocean.app` hostname App Platform assigns an app, with a certificate
+it manages. Derived from the app's name once, at creation, then pinned: renaming the app does not move it, and it
+cannot be regenerated.
+
+**Ingress.** The hostname traffic actually arrives on, as `default_ingress` in the App Platform API. Distinct from the
+app's name, which after a rename is only a dashboard label.
+
+**`EV[1:...]`.** How App Platform returns an encrypted environment variable. Reading a spec back gives ciphertext, never
+the value, so a deployed app cannot be used to recover a key. Two such values of identical length are a hint that both
+hold the same plaintext - usually the empty string.
