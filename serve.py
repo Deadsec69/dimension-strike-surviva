@@ -611,6 +611,13 @@ class H(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path, _, qs = self.path.partition('?')
+        # Decode before deciding anything. SimpleHTTPRequestHandler.translate_path unquotes before it
+        # opens the file, so a guard that reads the raw path is guarding a different string than the
+        # one that reaches the filesystem: /%2Eenv passed the dotfile check below and then resolved to
+        # .env, serving the key. Measured, not theorised - it returned 200 with the file. A fronting
+        # proxy that normalises the URL hides this (App Platform's does), which is exactly why it must
+        # not be relied on. Both guards now see what open() will see.
+        path = urllib.parse.unquote(path)
         if any(seg.startswith('.') for seg in path.split('/')):         # .env / .git / .claude and friends all 404
             return self._json(404, {'error': 'not found'})
         if path.lstrip('/').startswith('runs/'):                        # portraits are people's faces:
