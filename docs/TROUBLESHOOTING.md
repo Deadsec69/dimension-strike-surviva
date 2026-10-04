@@ -107,3 +107,32 @@ a real token differ in length.
 
 Fix it with `bash deploy/do-apply.sh`, which merges the values in from `.env` and never sends an empty
 secret. Then confirm `hasKey:true` and `freeLeft:1` on `/api/health`.
+
+### The CLEAR button never appears, even with the right token
+
+`canClear` in `/api/health` does not mean "you may clear". It is
+`(not ADMIN_TOKEN) and client_ip in (127.0.0.1, ::1)` - true only when *no* token is configured and
+you are on loopback, i.e. the local-development case. Once `DS_ADMIN_TOKEN` is set it is always
+`false`, for everyone, including a valid token holder.
+
+That is not what reveals the button. `js/board.js` shows it when either a token is stored locally or
+`canClear` is true:
+
+```js
+const show = !!this.adminToken() || this.canClear;
+```
+
+So the deployed path is the stored token, which `/?admin=<token>` writes to `localStorage` under
+`ds.admin`. If the button is missing, the token is not in this browser's storage - visit
+`/?admin=<token>` once more. The URL is stripped from the address bar afterwards, so re-running it
+looks like nothing happened; check `localStorage.getItem('ds.admin')` in the console.
+
+### Clearing the board returns 403 on a deployed app
+
+The server compares `X-Admin-Token` against `DS_ADMIN_TOKEN` with a constant-time comparison, and both
+failure modes answer the same `403 {"error":"not allowed"}` - a wrong token, and a right token sent to
+a server where none is configured. So a 403 alone does not tell you which it is.
+
+Separate them with `/api/health`: `hasKey` tells you whether the secrets landed at all. If the token is
+genuinely stale, re-apply with `bash deploy/do-apply.sh` - it reuses the `DS_ADMIN_TOKEN` already in
+`.env` rather than generating a new one, so the token you hold stays valid.
