@@ -13,3 +13,6 @@ gap, a held pose flickers across a single threshold several times a second.
 
 **One-Euro filter.** A low-pass whose cutoff rises with speed: still hands are smoothed hard, moving hands are barely
 delayed. A fixed-ratio EMA cannot do both, having only one knob.
+
+**Hit-stop.** Freezing scene time almost completely at the fracture, then releasing it. Real time keeps running, so
+the camera still shakes through the pause.
