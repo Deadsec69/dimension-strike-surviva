@@ -47,7 +47,9 @@ licensed CC BY 4.0 and credited in the page.
 bash fetch-assets.sh && python serve.py 8123
 ```
 
-Open http://localhost:8123 . `localhost` counts as a secure context, so the camera works.
+Open http://localhost:8123 . `localhost` counts as a secure context, so the camera works without a
+certificate - which is not true of a bare IP on your network, so test gestures locally rather than from
+another device.
 
 This repo commits the binary artifacts (`models/`, `vendor/wasm/`, `textures/`), so a clone runs as
 is and `fetch-assets.sh` can be skipped. What it fetches (about 20MB in total) is those artifacts:
