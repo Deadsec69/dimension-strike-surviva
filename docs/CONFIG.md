@@ -25,3 +25,10 @@ measured at 122s, which a finishing run cannot wait for.
 `1K` (default) is about 1344x768 at 16:9. `2K` is sharper and roughly twice as slow. The portrait is a
 landscape banner either way; the aspect ratio is not configurable because the UI reserves a 16:9 slot
 for it.
+
+## `DS_ADMIN_TOKEN`
+
+Required to clear the leaderboard. Generate one with `openssl rand -hex 24`.
+
+Unset means the server assumes it is local and accepts a clear from loopback only. That keeps local
+development exactly as it was while making a public deployment safe by default.
