@@ -171,6 +171,20 @@ direction of the constraint: a rename is safe for a link you have already shared
 bites is the other one - choose the name carefully at creation, because that is the only moment it
 decides anything.
 
+**Cost: $5/month.** One `basic-xxs` instance (1 shared vCPU, 512MB), which is what `.do/app.yaml`
+asks for and is enough - the server only serves files and makes about two Gemini calls per finished
+run; the game itself runs on the visitor's machine. Billed hourly and prorated, so a partial month
+costs less. Confirm the current price rather than trusting this line:
+
+```bash
+doctl apps tier instance-size list          # basic-xxs -> $/month
+doctl apps propose --app <app-id> --spec .do/app.yaml -o json | jq .app_cost
+```
+
+Not included: outbound bandwidth above the plan allowance, and Gemini usage, which Google bills to
+whoever owns the key. `instance_count` stays at 1 on purpose - the board is a JSON file guarded by an
+in-process lock, so a second instance would have its own copy and its own lock.
+
 **The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
 storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
 deployments and other container replacements"*. `runs/` holds `leaderboard.json`, `quota.json` and every
