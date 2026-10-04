@@ -16,3 +16,6 @@ delayed. A fixed-ratio EMA cannot do both, having only one knob.
 
 **Hit-stop.** Freezing scene time almost completely at the fracture, then releasing it. Real time keeps running, so
 the camera still shakes through the pause.
+
+**Armed.** The state in which a weapon pose will actually charge. Reached after the hand has been still long
+enough. A hand that just entered frame is never armed.
