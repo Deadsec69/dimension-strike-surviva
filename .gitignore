@@ -15,3 +15,6 @@ Thumbs.db
 # Raw screen recordings stay out (GitHub's 100MB per-file limit); the compressed demo video lives in docs/
 *.mov
 *.webm
+
+# Deployment secrets live only on the server
+deploy/.env

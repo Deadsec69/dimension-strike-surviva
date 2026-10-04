@@ -1,0 +1,46 @@
+# Dimension Strike on a DigitalOcean droplet: the app plus Caddy for automatic HTTPS.
+#
+#   cp .env.example .env     # fill in DOMAIN and GEMINI_API_KEY - this file is gitignored
+#   docker compose up -d --build
+#
+# Secrets live only in deploy/.env on the droplet. Nothing here carries a key.
+services:
+  app:
+    build:
+      context: ..            # the Dockerfile sits at the repo root; .dockerignore keeps the image lean
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      DS_ADMIN_TOKEN: "${DS_ADMIN_TOKEN}"
+      DS_FREE_PORTRAITS: "${DS_FREE_PORTRAITS:-1}"
+      DS_FP_PER_DAY: "${DS_FP_PER_DAY:-3}"
+      DS_GLOBAL_PER_DAY: "${DS_GLOBAL_PER_DAY:-60}"
+      DS_RUNS_PER_HOUR: "${DS_RUNS_PER_HOUR:-30}"
+    volumes:
+      # The board, the portraits and the free-credit ledger. On a named volume they survive
+      # `docker compose down`, a rebuild and a droplet reboot - without it every deploy wipes them.
+      - runs:/app/runs
+    expose:
+      - "8080"               # reachable from Caddy only, never published to the internet directly
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"              # 80 is needed for the ACME HTTP challenge and the redirect to 443
+      - "443:443"
+      - "443:443/udp"        # HTTP/3
+    environment:
+      DOMAIN: "${DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data     # holds the issued certificates: losing this re-requests them and can hit rate limits
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  runs:
+  caddy_data:
+  caddy_config:

@@ -109,6 +109,35 @@ open to the world. `DS_ADMIN_TOKEN` set (as it is on Render, generated) means on
 that token may clear, and the buttons stay hidden for everyone else. With no token set the server is
 assumed to be local and only loopback may clear - so nothing changes while you develop.
 
+### Deploying on a DigitalOcean droplet
+
+A $6/mo droplet, Docker, and Caddy for automatic HTTPS. The droplet's own disk is what keeps the board,
+the portraits and the free-credit ledger across restarts.
+
+**You need a domain.** `getUserMedia` refuses to run over plain `http://`, and Let's Encrypt will not
+issue a certificate for a bare IP address - so without a name pointed at the droplet the camera never
+starts and the game does not work. Any domain does, including a free DuckDNS subdomain. Point an
+**A record at the droplet's public IPv4** and let it propagate before you start.
+
+```bash
+# on the droplet, as root
+git clone https://github.com/Deadsec69/dimension-strike-surviva.git /opt/dimension-strike
+cd /opt/dimension-strike/deploy
+cp .env.example .env && nano .env          # DOMAIN, GEMINI_API_KEY, DS_ADMIN_TOKEN
+bash setup.sh                              # installs Docker, opens 80/443, builds and starts
+```
+
+`setup.sh` is idempotent, so re-run it after a `git pull` to deploy a new version. To update by hand:
+`docker compose up -d --build`.
+
+**Secrets never touch git.** `deploy/.env` is gitignored and exists only on the droplet;
+`deploy/.env.example` carries blank values. Generate the admin token with `openssl rand -hex 24`, then
+visit `https://<your domain>/?admin=<token>` once to reveal the board's CLEAR control.
+
+The `runs` volume is the one piece of state. It survives `docker compose down`, a rebuild and a reboot;
+deleting it resets the leaderboard, every portrait and everyone's free credit. Back it up with
+`docker run --rm -v dimension-strike_runs:/r -v "$PWD":/b alpine tar czf /b/runs-backup.tgz -C /r .`
+
 ### Deploying on Render
 
 `render.yaml` is a blueprint, so the service, the disk and the environment come from the repo. Any

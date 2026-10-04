@@ -1,0 +1,14 @@
+# Automatic HTTPS. Caddy provisions and renews a Let's Encrypt certificate for $DOMAIN on its own,
+# which is the whole reason a domain is required: getUserMedia refuses to run over plain http, so
+# without a certificate the camera - and therefore the entire game - is dead.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The app sets its own COOP/COEP (MediaPipe's GPU delegate needs cross-origin isolation) and its
+	# own cache headers; pass everything through untouched.
+	reverse_proxy app:8080 {
+		# serve.py reads the first X-Forwarded-For hop for per-IP rate limiting, so the real client
+		# address has to survive the proxy.
+		header_up X-Forwarded-For {remote_host}
+	}
+}
