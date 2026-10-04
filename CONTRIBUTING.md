@@ -34,3 +34,8 @@ without a camera, and `survival._spawnAt()` places a rock exactly where a test w
 
 Never commit a key. `.env` and `deploy/.env` are gitignored; the `.example` files carry blank values.
 Error strings that reach a client are scrubbed, and public rows carry codes rather than exception text.
+
+## Privacy
+
+Portraits are likenesses of real people. A visitor sees only the ones their own browser generated, and
+`runs/` is never served as static files. Keep it that way.
