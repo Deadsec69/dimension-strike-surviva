@@ -40,3 +40,16 @@ serve.py         static files, the Gemini pipeline, the board, quota
 
 Reversing 1 and 2 makes impacts land a frame late, which reads as input lag on the asteroid that
 killed you - the one frame a player is most likely to be watching closely.
+
+## Two clocks
+
+Scene time and real time are deliberately different.
+
+- **Scene time** is scaled by hit-stop, so the fracture can be held for 130ms and released over 240ms.
+  Anything that should feel like part of the event uses it.
+- **Real time** drives camera shake, the gesture state machine and input handling, so the picture keeps
+  moving and the hands keep working while scene time is nearly frozen.
+
+A third clock exists inside `gesture.js`: an internal accumulator capped at 100ms per step, because
+neither frame counts (a dim room drops the camera to 15fps) nor `performance.now()` deltas (switching
+tabs jumps seconds) survive contact with reality.
