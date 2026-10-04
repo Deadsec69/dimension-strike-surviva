@@ -32,3 +32,10 @@ Required to clear the leaderboard. Generate one with `openssl rand -hex 24`.
 
 Unset means the server assumes it is local and accepts a clear from loopback only. That keeps local
 development exactly as it was while making a public deployment safe by default.
+
+## `DS_FREE_PORTRAITS`
+
+How many portraits a visitor gets on your key, ever. Default `1`.
+
+Counted against their `ds_uid` cookie. Clearing cookies earns another one, which is what
+`DS_FP_PER_DAY` exists to blunt.
