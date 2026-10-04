@@ -29,3 +29,8 @@ python serve.py 8123
 There is no test runner. Changes are verified by driving the real thing: `window.__ds` exposes
 `stage`, `civ`, `survival`, `board`, `gesture` and `fire()` so a headless browser can play a run
 without a camera, and `survival._spawnAt()` places a rock exactly where a test wants it.
+
+## Secrets
+
+Never commit a key. `.env` and `deploy/.env` are gitignored; the `.example` files carry blank values.
+Error strings that reach a client are scrubbed, and public rows carry codes rather than exception text.
