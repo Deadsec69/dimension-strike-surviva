@@ -62,6 +62,15 @@ def api_key():
     return (getattr(_key_tls, 'key', '') or os.environ.get('GEMINI_API_KEY', '')).strip()
 def use_key(k): _key_tls.key = (k or '').strip()
 
+def scrub(text, *secrets):
+    """Never let a key ride out on an error string. Nothing today puts one there - the key goes to
+    Google in a header, not a URL - but error text is the classic way secrets escape, and this one is
+    cheap insurance for both the owner's key and a visitor's."""
+    out = str(text)[:200]
+    for k in secrets:
+        if k and len(k) >= 8: out = out.replace(k, '***')
+    return out
+
 # -- Gemini transport --
 def gcall(path, body=None, timeout=30):
     """Returns (status, json). HTTP errors come back as json rather than raising; only network
@@ -505,10 +514,15 @@ def _portrait_job(entry_id, snap, tier, username, score=0, visitor_key=''):
     row on the board. The raw snapshot only ever lives in memory and is discarded when done.
     A visitor's key is scoped to this thread and dies with it; nothing here logs or persists it."""
     use_key(visitor_key)
-    emo, portrait, warn = None, None, []
+    # warn goes on the board row, which every visitor can read; detail stays in `log`, which only the
+    # operator sees. Raw exception text must not cross that line - the client never shows it anyway
+    # (js/board.js maps a handful of codes and falls back to "portrait failed").
+    emo, portrait, warn, log = None, None, [], []
+    secrets_ = (visitor_key, os.environ.get('GEMINI_API_KEY', '').strip())
     t0 = time.time()
     try: emo = read_emotion(snap)
-    except Exception as e: warn.append(f'emotion: {e}')
+    except Exception as e:
+        warn.append('emotion_failed'); log.append('emotion: ' + scrub(e, *secrets_))
     for attempt in (1, 2):                           # a momentary network drop (Errno 51, observed) shouldn't cost twenty minutes of waiting: retry once
         try:
             data, mime = gen_portrait(snap, tier, (emo or {}).get('emotion'), score)
@@ -516,12 +530,13 @@ def _portrait_job(entry_id, snap, tier, username, score=0, visitor_key=''):
             portrait = save_image(data, mime, username, tier)
             break
         except Exception as e:
-            warn.append(f'portrait#{attempt}: {e}')
+            log.append(f'portrait#{attempt}: ' + scrub(e, *secrets_))
             if attempt == 1 and isinstance(e, (urllib.error.URLError, TimeoutError, OSError)): time.sleep(15); continue
             break
+    if not portrait: warn.append('portrait_failed')
     board_update(entry_id, {'emotion': (emo or {}).get('emotion'),
-                            'portrait': portrait, 'pending': False, 'warnings': warn})
-    print(f'portrait {entry_id}: {"done " + str(portrait) if portrait else "failed"} {time.time() - t0:.0f}s' + (' ' + '; '.join(warn) if warn else ''),
+                            'portrait': portrait, 'pending': False, 'warnings': warn})   # public
+    print(f'portrait {entry_id}: {"done " + str(portrait) if portrait else "failed"} {time.time() - t0:.0f}s' + (' ' + '; '.join(log) if log else ''),
           file=sys.stderr, flush=True)
 
 class H(SimpleHTTPRequestHandler):
@@ -586,7 +601,7 @@ class H(SimpleHTTPRequestHandler):
                 allowed = self._client_ip() in ('127.0.0.1', '::1')
             if not allowed: return self._json(403, {'error': 'not allowed'})
             try: return self._json(200, {'ok': True, **board_clear()})
-            except Exception as e: return self._json(500, {'error': str(e)[:200]})
+            except Exception as e: return self._json(500, {'error': scrub(e, ADMIN_TOKEN, os.environ.get('GEMINI_API_KEY', ''))})
         if path != '/api/finish': return self._json(404, {'error': 'no such endpoint'})
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0: return self._json(400, {'error': 'empty body'})
@@ -599,7 +614,7 @@ class H(SimpleHTTPRequestHandler):
         except ValueError as e: return self._json(400, {'error': str(e)})
         except Exception as e:
             print('scoring failed: ' + repr(e), file=sys.stderr, flush=True)
-            return self._json(500, {'error': str(e)[:200]})
+            return self._json(500, {'error': scrub(e, ADMIN_TOKEN, os.environ.get('GEMINI_API_KEY', ''))})
 
     def end_headers(self):
         # MediaPipe's GPU delegate needs cross-origin isolation in some browsers
