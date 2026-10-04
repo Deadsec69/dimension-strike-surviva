@@ -52,3 +52,10 @@ Records a finished run and, if a key and credit are available, starts a portrait
 
 Returns the stored row, the top of the board and a `warnings` array. **A failed portrait is not a
 failed request**: the run is always recorded, and only the image degrades.
+
+## POST /api/leaderboard/clear
+
+Deletes every run and every portrait file. Irreversible.
+
+Requires `X-Admin-Token` matching `DS_ADMIN_TOKEN`. With no token configured the server assumes it is
+local and accepts the call from loopback only. Anything else gets 403.
