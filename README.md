@@ -185,6 +185,20 @@ Not included: outbound bandwidth above the plan allowance, and Gemini usage, whi
 whoever owns the key. `instance_count` stays at 1 on purpose - the board is a JSON file guarded by an
 in-process lock, so a second instance would have its own copy and its own lock.
 
+**Operating it.** Everything is `doctl`, and none of these redeploy:
+
+```bash
+doctl apps logs <app-id> --follow            # runtime logs; --type build for a failed build
+doctl apps logs <app-id> --type build
+doctl apps list-deployments <app-id>         # phase per deployment: BUILDING / ACTIVE / ERROR
+doctl apps restart <app-id>                  # same image, fresh container - and so a fresh empty runs/
+doctl apps get <app-id>                      # name, default_ingress, active deployment
+```
+
+`restart` is worth a caveat: it does not rebuild, but it does replace the container, so it resets
+`runs/` exactly as a deploy does. There is no pause or stop - see
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for why scaling to zero is not one either.
+
 **The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
 storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
 deployments and other container replacements"*. `runs/` holds `leaderboard.json`, `quota.json` and every
