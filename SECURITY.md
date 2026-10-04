@@ -15,3 +15,10 @@ Open an issue on the repository. There is no bounty and no SLA; this is a person
   a token configured, only loopback may clear.
 - **Error strings.** Public rows carry short codes. Exception text goes to the server log, where the
   operator can see it and a visitor cannot.
+
+## What is not protected
+
+- Free-credit limits are deterrence. A fresh browser, incognito or a VPN earns another generation;
+  real enforcement needs accounts.
+- Anyone who can open the site can consume the configured daily portrait allowance.
+- The board is public by design. Callsigns and scores are visible to everyone.
