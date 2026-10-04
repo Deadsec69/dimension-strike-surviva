@@ -76,3 +76,21 @@ protects the server rather than the quota.
 `PORT` set makes the server bind `0.0.0.0` - what a container platform needs. Unset, it binds
 loopback on 8123 (or `argv[1]`), so running it locally never exposes anything to the network by
 accident. `HOST` overrides the address explicitly.
+
+## `DS_APP_ID` (deploy tooling only)
+
+Not read by `serve.py`. `deploy/do-apply.sh` uses it as the App Platform app to update, so you can run
+the script with no arguments; pass an id as `$1` to override it.
+
+This is the one entry in `.env` that is not a secret - an app id is not sensitive, it just has nowhere
+better to live. Which is worth being explicit about, because `.env` now does two jobs: it supplies the
+server's runtime settings, *and* it is the source the deploy script merges secrets from. The file is
+gitignored, and that is the only thing keeping `GEMINI_API_KEY` and `DS_ADMIN_TOKEN` out of the
+repository - `.do/app.yaml` declares both as `SECRET` with no value precisely so the spec can be
+committed safely.
+
+Check it before you commit, as a habit rather than as a one-off:
+
+```bash
+git check-ignore -v .env     # must print the .gitignore rule that covers it
+```
