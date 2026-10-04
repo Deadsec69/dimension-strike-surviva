@@ -136,3 +136,25 @@ a server where none is configured. So a 403 alone does not tell you which it is.
 Separate them with `/api/health`: `hasKey` tells you whether the secrets landed at all. If the token is
 genuinely stale, re-apply with `bash deploy/do-apply.sh` - it reuses the `DS_ADMIN_TOKEN` already in
 `.env` rather than generating a new one, so the token you hold stays valid.
+
+### I renamed the app and the URL still has the old name
+
+Working as designed, and not fixable. App Platform derives the starter subdomain from the app's name
+once, when the app is created, and pins it from then on. Renaming the app changes only what the
+dashboard lists it under; there is no way to regenerate the subdomain, and the only route to a
+different URL is creating a new app and redeploying into it.
+
+Usually this is the behaviour you want, because it means a rename cannot break a link you have already
+shared. It only hurts if you were counting on the name to fix a URL you dislike - decide that at
+creation, which is the one moment the name has any effect on the hostname.
+
+### Everyone gets a free portrait again after every deploy
+
+The free-credit ledger is `runs/quota.json`, and on a platform with no persistent disk it is erased
+along with the rest of `runs/` on each deploy. `DS_FREE_PORTRAITS` is "ever" only for as long as the
+container lives.
+
+So on App Platform the per-visitor limit is not the real protection - `DS_GLOBAL_PER_DAY` is, because
+it is the only ceiling a redeploy cannot reset. If a link is circulating and you deploy often, that
+number is what stands between it and your Gemini bill. Persist `runs/` (Spaces, or the droplet setup in
+`deploy/`) if you need the per-visitor count to actually mean "ever".
