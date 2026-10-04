@@ -15,8 +15,23 @@ The probe the page makes on load. Cheap and non-blocking.
   "discovered": false, "runs": 7, "freeLeft": 1, "freeTotal": 1, "canClear": false }
 ```
 
-`hasKey` is a boolean - the key itself is never sent. `models` may be the preference list before the
-background discovery finishes; `discovered` says whether it has.
+| Field | Meaning |
+|---|---|
+| `ok` | The server answered. Always `true` if you got a body at all |
+| `hasKey` | Whether an owner key is configured. A boolean - the key itself is never sent |
+| `models` | The image/text pair in use, or `null` when `hasKey` is false |
+| `discovered` | `false` while `models` is still the preference list rather than a verified one |
+| `runs` | Rows currently on the board |
+| `freeLeft` / `freeTotal` | This visitor's remaining and total free portraits |
+| `canClear` | **Not** "you may clear" - see below |
+
+`freeLeft` is forced to `0` whenever `hasKey` is false, since there is no key to spend. So a deployment
+that lost its key reports `hasKey:false, freeLeft:0` and refuses free portraits before attempting them
+- which looks identical to a visitor who has used their credit up.
+
+`canClear` reports `(not ADMIN_TOKEN) and client_ip in (127.0.0.1, ::1)`: it answers "is clearing
+unprotected and am I local", the local-development case. With `DS_ADMIN_TOKEN` configured it is `false`
+for every caller, valid token holders included. Authorization happens on the clear request itself.
 
 ## GET /api/leaderboard?limit=N
 
