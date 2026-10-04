@@ -35,6 +35,14 @@ without a camera, and `survival._spawnAt()` places a rock exactly where a test w
 Never commit a key. `.env` and `deploy/.env` are gitignored; the `.example` files carry blank values.
 Error strings that reach a client are scrubbed, and public rows carry codes rather than exception text.
 
+`.do/app.yaml` is committed, so the two `SECRET` entries in it must stay valueless. If you add another
+secret, add it there the same way - key, `scope`, `type: SECRET`, no `value` - and teach
+`deploy/do-apply.sh` to merge it from `.env`. Do not "temporarily" paste a value into the spec to test
+something; `git add -p` makes that a single careless keystroke away from permanent.
+
+And never run `doctl apps update --spec .do/app.yaml`. It replaces the whole spec, so the valueless
+secrets overwrite the real ones with empty strings. `bash deploy/do-apply.sh` exists for this.
+
 ## Privacy
 
 Portraits are likenesses of real people. A visitor sees only the ones their own browser generated, and
