@@ -39,3 +39,16 @@ The generated image, as `image/jpeg` or `image/png`.
 **Only for the browser that generated it.** The request's `ds_uid` must match the run's owner, or the
 answer is 404 - the same answer an unknown id gets, so the endpoint does not confirm which runs exist.
 `runs/` is not served as static files, so this is the only route to a portrait.
+
+## POST /api/finish
+
+Records a finished run and, if a key and credit are available, starts a portrait in the background.
+
+```json
+{ "username": "...", "score": 194, "kills": 34, "blocks": 12, "elapsed": 136.7,
+  "ending": "self|heat", "tier": "devil|human|demigod|god",
+  "snapshot": "<base64 jpeg>", "apiKey": "<the visitor's own, optional>" }
+```
+
+Returns the stored row, the top of the board and a `warnings` array. **A failed portrait is not a
+failed request**: the run is always recorded, and only the image degrades.
