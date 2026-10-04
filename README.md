@@ -197,6 +197,25 @@ Not included: outbound bandwidth above the plan allowance, and Gemini usage, whi
 whoever owns the key. `instance_count` stays at 1 on purpose - the board is a JSON file guarded by an
 in-process lock, so a second instance would have its own copy and its own lock.
 
+**Bringing it back after a delete.** The committed spec is a complete recreate source - it was
+diffed against the live app's spec before that app was deleted, and the only difference was the
+`ingress` block, which App Platform generates from `http_port`. So two commands:
+
+```bash
+doctl apps create --spec .do/app.yaml        # prints the new app id
+bash deploy/do-apply.sh <new-app-id>         # merges the secrets in from .env
+```
+
+Then `doctl apps list-deployments <id>` until the phase is `ACTIVE`, and check `/api/health` reports
+`hasKey:true` and `freeLeft:1`. Add the new id to `.env` as `DS_APP_ID` so later applies need no
+argument. The second command is not optional: created from the spec alone, the app comes up with both
+secrets set to the empty string and refuses every portrait.
+
+**The URL will be different.** The starter domain's hash is assigned at creation and cannot be carried
+over, so a recreated app is reachable at a new `<name>-<hash>.ondigitalocean.app` and any previously
+shared link stays dead. If a stable address matters, point a domain you control at the app and share
+that instead - then the generated hostname never appears in a link.
+
 **Operating it.** Everything is `doctl`, and none of these redeploy:
 
 ```bash
