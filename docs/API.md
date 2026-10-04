@@ -31,3 +31,11 @@ One run, same shape as a leaderboard row. Used while polling for a portrait that
 `pending: true` means keep asking.
 
 404 if the id is unknown.
+
+## GET /api/portrait/:id
+
+The generated image, as `image/jpeg` or `image/png`.
+
+**Only for the browser that generated it.** The request's `ds_uid` must match the run's owner, or the
+answer is 404 - the same answer an unknown id gets, so the endpoint does not confirm which runs exist.
+`runs/` is not served as static files, so this is the only route to a portrait.
