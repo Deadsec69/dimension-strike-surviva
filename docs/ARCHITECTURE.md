@@ -29,3 +29,14 @@ js/survival.js   survival mode: rocks, shields, beams, scoring (loaded on demand
 js/board.js      end-of-run scoring, portrait polling, the observer board
 serve.py         static files, the Gemini pipeline, the board, quota
 ```
+
+## The frame loop
+
+`main.js` drives one `requestAnimationFrame` loop. Order matters:
+
+1. `survival.update(dt)` first, so this frame's impacts exist before anything reads them.
+2. `civ.update(dt, T, P, spin)` consumes the resulting temperature and pressure.
+3. `stage.update(dt)` renders, having been told the environment by the two above.
+
+Reversing 1 and 2 makes impacts land a frame late, which reads as input lag on the asteroid that
+killed you - the one frame a player is most likely to be watching closely.
