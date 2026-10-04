@@ -86,3 +86,24 @@ Expected there, not a bug. DigitalOcean App Platform containers have no persiste
 support volumes, so `runs/` - the board, the portraits and the free-credit ledger - is lost on every
 deploy and on any container replacement. Either accept it, move storage to Spaces Object Storage, or
 run the droplet setup in `deploy/`, which keeps `runs/` on a Docker volume.
+
+### `/api/health` says `hasKey:false` on a deployed app, though I set the key
+
+The usual cause on App Platform is that the spec was applied with `doctl apps update --spec
+.do/app.yaml`. That replaces the whole spec, and the `SECRET` entries in the file carry no value on
+purpose - a value there would be a secret in git - so applying it stores the *empty string* for both
+and the key you set earlier is gone.
+
+The giveaway is in the spec itself. Secrets come back as `EV[1:...]` ciphertext, so you cannot read
+them, but you can compare their lengths:
+
+```bash
+doctl apps get <app-id> -o json \
+  | jq -r '.[0].spec.services[].envs[] | select(.type=="SECRET") | "\(.key) \(.value|length)"'
+```
+
+Two secrets of *identical* length is the signature of identical plaintext - both empty. A real key and
+a real token differ in length.
+
+Fix it with `bash deploy/do-apply.sh`, which merges the values in from `.env` and never sends an empty
+secret. Then confirm `hasKey:true` and `freeLeft:1` on `/api/health`.
