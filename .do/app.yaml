@@ -14,17 +14,28 @@
 # and other container replacements". runs/ holds leaderboard.json, quota.json and the portraits, so all
 # three reset on every deploy. For a persistent board, use Spaces Object Storage or the droplet setup
 # in deploy/ instead.
-name: dimension-strike
+# The name is what the DigitalOcean dashboard lists the app under. It is deliberately NOT the
+# hostname: App Platform derives the starter subdomain from the name once, when the app is created,
+# and then pins it - renaming an app leaves the old prefix in place and there is no way to regenerate
+# it. This app was created as "dimension-strike", so it still answers on
+#   https://dimension-strike-qsn3g.ondigitalocean.app
+# and renaming it here changed only the dashboard. That is the desired behaviour: the link has already
+# been shared, so it must not move. Changing the URL would mean creating a new app.
+name: experimental
 region: nyc
 
 services:
   - name: web
     dockerfile_path: Dockerfile
     source_dir: /
-    github:
-      repo: Deadsec69/dimension-strike-surviva
+    # A plain git source rather than the GitHub integration, for two reasons: it needs no OAuth
+    # authorization, so the app can be created entirely from the CLI; and it has no deploy_on_push,
+    # which is what you want here - App Platform has no persistent storage, so an automatic deploy on
+    # every push would silently wipe the leaderboard and the portraits. Deploy deliberately instead:
+    #   doctl apps create-deployment <app-id>
+    git:
+      repo_clone_url: https://github.com/Deadsec69/dimension-strike-surviva.git
       branch: main
-      deploy_on_push: true
 
     instance_size_slug: basic-xxs
     instance_count: 1          # the board is a JSON file guarded by an in-process lock; a second
@@ -36,8 +47,15 @@ services:
       http_path: /api/health   # answers immediately: model discovery is backgrounded, never blocking
 
     envs:
-      # Set these in the dashboard. Blank GEMINI_API_KEY is a supported mode: runs still score and the
-      # board still records them, portraits simply stay empty.
+      # !! Do not apply this file with `doctl apps update --spec .do/app.yaml`. That replaces the whole
+      # !! spec, and the two SECRET entries below carry no value - so it would set both secrets to the
+      # !! empty string. That is exactly how this app was first created, and it left the live site with
+      # !! hasKey:false, refusing every visitor's free portrait. Use `bash deploy/do-apply.sh` instead:
+      # !! it merges the real values in from .env (gitignored) and pipes the spec to doctl on stdin.
+      #
+      # They carry no value here because a value here would be a secret committed to git. A genuinely
+      # blank GEMINI_API_KEY is still a supported runtime mode - runs score and the board records
+      # them, portraits just stay empty - but it is not what you want in production.
       - key: GEMINI_API_KEY
         scope: RUN_TIME
         type: SECRET
