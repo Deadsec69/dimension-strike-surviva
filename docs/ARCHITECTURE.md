@@ -53,3 +53,14 @@ Scene time and real time are deliberately different.
 A third clock exists inside `gesture.js`: an internal accumulator capped at 100ms per step, because
 neither frame counts (a dim room drops the camera to 15fps) nor `performance.now()` deltas (switching
 tabs jumps seconds) survive contact with reality.
+
+## Data flow of one finished run
+
+1. The browser grabs a mirrored JPEG on the frame the run ends - not when the verdict appears 2.7s
+   later, by which point the reaction has left the face.
+2. `POST /api/finish` records the row and returns immediately, so the score banks even if Gemini is
+   slow or down.
+3. A background thread reads the expression, generates the portrait, brightens it if Pillow is present,
+   and writes it under `runs/<callsign>/`.
+4. The page polls `/api/run/:id` until `pending` clears, then swaps the image in - including on the
+   board, even if the player has already started another run.
