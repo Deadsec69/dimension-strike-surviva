@@ -39,3 +39,10 @@ How many portraits a visitor gets on your key, ever. Default `1`.
 
 Counted against their `ds_uid` cookie. Clearing cookies earns another one, which is what
 `DS_FP_PER_DAY` exists to blunt.
+
+## `DS_FP_PER_DAY`
+
+Free portraits per IP + user-agent bucket per day. Default `3`.
+
+The backstop behind the cookie. The bucket is a truncated hash; the raw IP is never stored. Set it
+higher if several people share one connection, which is normal on office or campus networks.
