@@ -856,3 +856,15 @@ condition.
 `setEnv()` in `js/planet.js` maps temperature and pressure to cloud cover, atmospheric density and
 color; `PLANET_FRAG` holds the surface palette and the various thresholds (ice line, aridity, boiling,
 melting).
+
+## Backups
+
+The whole of the mutable state is `runs/`: `leaderboard.json`, the portraits and `quota.json`. On a
+droplet it is a Docker volume:
+
+```bash
+docker run --rm -v dimension-strike_runs:/r -v "$PWD":/b alpine \
+  tar czf /b/runs-backup.tgz -C /r .
+```
+
+Restoring is the same command with `tar xzf`. There is no database and nothing else to back up.
