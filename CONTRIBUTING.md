@@ -23,3 +23,9 @@ python serve.py 8123
 - Comments say why. If a constant looks arbitrary, the comment should say what went wrong at other
   values.
 - Interface copy is English; so is everything else in the repo.
+
+## Testing
+
+There is no test runner. Changes are verified by driving the real thing: `window.__ds` exposes
+`stage`, `civ`, `survival`, `board`, `gesture` and `fire()` so a headless browser can play a run
+without a camera, and `survival._spawnAt()` places a rock exactly where a test wants it.
