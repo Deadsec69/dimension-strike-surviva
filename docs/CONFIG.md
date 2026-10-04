@@ -19,3 +19,9 @@ Unset is a supported mode, not an error: runs still score and the board still re
 Pin the models instead of discovering them. Leave both blank and the server starts with its preferred
 pair and calibrates against `/v1beta/models` in a background thread - the listing endpoint has been
 measured at 122s, which a finishing run cannot wait for.
+
+## `GEMINI_IMAGE_SIZE`
+
+`1K` (default) is about 1344x768 at 16:9. `2K` is sharper and roughly twice as slow. The portrait is a
+landscape banner either way; the aspect ratio is not configurable because the UI reserves a 16:9 slot
+for it.
