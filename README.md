@@ -30,6 +30,17 @@ each its own mask. The textures carry the material quality; the procedural layer
 meaningful. Surface imagery from [Solar System Scope](https://www.solarsystemscope.com/textures/),
 licensed CC BY 4.0 and credited in the page.
 
+## Documentation
+
+| | |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit, and where each one runs |
+| [docs/API.md](docs/API.md) | Every HTTP endpoint and the warning codes |
+| [docs/CONFIG.md](docs/CONFIG.md) | Every environment variable |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptoms, in the order people hit them |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Terms the comments assume |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Conventions, testing, secrets, privacy |
+
 ## Quick start
 
 ```bash
