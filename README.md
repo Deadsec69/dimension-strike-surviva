@@ -21,7 +21,7 @@ the verdict appears, **clap both hands** for the next specimen. With the camera 
 shoot and hold a ✌️ to place shields, every impact raises the temperature and every shield raises
 the pressure - see how long you can hold it.
 
-A purely static site with no build step. Three.js with hand-written shaders, plus MediaPipe gesture
+A purely static site with no build step - clone it and open `index.html` through any server. Three.js with hand-written shaders, plus MediaPipe gesture
 recognition.
 
 The art direction is **photoreal**: a NASA base map underneath, with the effects of temperature and
