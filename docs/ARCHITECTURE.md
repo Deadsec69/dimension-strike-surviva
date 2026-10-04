@@ -64,3 +64,25 @@ tabs jumps seconds) survive contact with reality.
    and writes it under `runs/<callsign>/`.
 4. The page polls `/api/run/:id` until `pending` clears, then swaps the image in - including on the
    board, even if the player has already started another run.
+
+## What `runs/` holds, and where it survives
+
+All mutable state is one directory. There is no database:
+
+| Path | Holds | Lost with the container? |
+|---|---|---|
+| `runs/leaderboard.json` | Every recorded run | yes |
+| `runs/<callsign>/*.jpg` | Generated portraits, one folder per player | yes |
+| `runs/quota.json` | Free-credit ledger, per `ds_uid` and per hashed IP bucket | yes |
+
+"Lost with the container" is the whole deployment story, and it differs by target:
+
+- **Locally and on a droplet**, `runs/` is a real directory or a Docker volume, so it persists across
+  restarts and redeploys. The droplet compose file mounts it precisely for this.
+- **On App Platform** there is no persistent storage and volumes are unsupported, so every deploy and
+  every container replacement starts from an empty `runs/`. Three consequences follow, and they are
+  easy to mistake for bugs: the board empties, portraits 404, and every visitor's free credit returns.
+
+The board being a JSON file is also why `instance_count` is pinned at 1. Reads and writes are
+serialized by an in-process lock, which protects nothing across processes - a second instance would
+have its own copy of both the file and the lock, and whichever wrote last would win.
