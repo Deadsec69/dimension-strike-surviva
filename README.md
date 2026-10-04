@@ -122,6 +122,29 @@ open to the world. `DS_ADMIN_TOKEN` set (as it is on Render, generated) means on
 that token may clear, and the buttons stay hidden for everyone else. With no token set the server is
 assumed to be local and only loopback may clear - so nothing changes while you develop.
 
+### Deploying on DigitalOcean App Platform (no domain, nothing but DigitalOcean)
+
+The shortest path to a working public link. App Platform assigns a starter domain on
+`ondigitalocean.app` and issues a real certificate for it, so the site is HTTPS from the first deploy -
+which is the part that matters, because `getUserMedia` only runs in a secure context and without it the
+camera never starts.
+
+1. DigitalOcean → **Apps → Create App** → pick this repo. It reads [`.do/app.yaml`](.do/app.yaml).
+2. Set `GEMINI_API_KEY` and `DS_ADMIN_TOKEN` when prompted. They are declared `SECRET`, so they are
+   stored encrypted and never committed. Generate the token with `openssl rand -hex 24`.
+3. Deploy. You get `https://<app>-<hash>.ondigitalocean.app`.
+4. Visit `/?admin=<token>` once to reveal the board's CLEAR control.
+
+No domain, no DNS, no certificate management, no Caddy. `deploy_on_push` is on, so pushing to `main`
+redeploys.
+
+**The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
+storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
+deployments and other container replacements"*. `runs/` holds `leaderboard.json`, `quota.json` and every
+portrait, so **the leaderboard, the portraits and everyone's free-portrait credit reset on each
+deploy**. Good for a demo link; if the board is meant to accumulate, use Spaces Object Storage or the
+droplet below, which keeps everything on its own disk.
+
 ### Deploying on a DigitalOcean droplet
 
 A $6/mo droplet, Docker, and Caddy for automatic HTTPS. The droplet's own disk is what keeps the board,

@@ -79,3 +79,10 @@ and it retries with a backoff. `deploy/setup.sh` warns when the two disagree.
 
 The build context is the directory, not the git tree, so a gitignored-but-present file is still
 copied. A stray screen recording once put 391MB in the image. Check `.dockerignore`.
+
+### The leaderboard empties itself on App Platform
+
+Expected there, not a bug. DigitalOcean App Platform containers have no persistent storage and do not
+support volumes, so `runs/` - the board, the portraits and the free-credit ledger - is lost on every
+deploy and on any container replacement. Either accept it, move storage to Spaces Object Storage, or
+run the droplet setup in `deploy/`, which keeps `runs/` on a Docker volume.

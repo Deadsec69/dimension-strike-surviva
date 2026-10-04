@@ -1,0 +1,62 @@
+# DigitalOcean App Platform spec.
+#
+# This is the no-domain, nothing-but-DigitalOcean path: App Platform assigns a starter domain on
+# ondigitalocean.app and issues a real certificate for it, so the site is served over HTTPS from the
+# first deploy. That matters more than convenience - getUserMedia only runs in a secure context, so
+# without a certificate the camera never starts and the gesture half of the game does not exist.
+#
+# Deploy: DigitalOcean -> Apps -> Create App -> pick this repo. It reads this file.
+# Nothing here contains a secret; the sensitive values are typed into the dashboard and stored
+# encrypted, which is why they are declared SECRET with no value.
+#
+# Known trade-off, by DigitalOcean's own documentation: App Platform containers have no persistent
+# storage and do not support volumes, and the local filesystem is "permanently lost after deployments
+# and other container replacements". runs/ holds leaderboard.json, quota.json and the portraits, so all
+# three reset on every deploy. For a persistent board, use Spaces Object Storage or the droplet setup
+# in deploy/ instead.
+name: dimension-strike
+region: nyc
+
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      repo: Deadsec69/dimension-strike-surviva
+      branch: main
+      deploy_on_push: true
+
+    instance_size_slug: basic-xxs
+    instance_count: 1          # the board is a JSON file guarded by an in-process lock; a second
+                               # instance would have its own copy and its own lock
+
+    http_port: 8080            # matches ENV PORT in the Dockerfile; serve.py binds 0.0.0.0 when PORT is set
+
+    health_check:
+      http_path: /api/health   # answers immediately: model discovery is backgrounded, never blocking
+
+    envs:
+      # Set these in the dashboard. Blank GEMINI_API_KEY is a supported mode: runs still score and the
+      # board still records them, portraits simply stay empty.
+      - key: GEMINI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      # Required to clear the board. Generate with: openssl rand -hex 24
+      # Unlock the control once at https://<app>.ondigitalocean.app/?admin=<value>
+      - key: DS_ADMIN_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+
+      # Free portraits on your key per visitor, and the limits behind them.
+      - key: DS_FREE_PORTRAITS
+        scope: RUN_TIME
+        value: "1"
+      - key: DS_FP_PER_DAY
+        scope: RUN_TIME
+        value: "3"
+      - key: DS_GLOBAL_PER_DAY
+        scope: RUN_TIME
+        value: "60"
+      - key: DS_RUNS_PER_HOUR
+        scope: RUN_TIME
+        value: "30"
