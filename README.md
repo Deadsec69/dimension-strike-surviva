@@ -221,6 +221,12 @@ add_header Cross-Origin-Embedder-Policy credentialless;
 The gesture module goes through a dynamic `import()`, so visitors who never turn the camera on never
 download those 19MB. The WASM is about 3MB gzipped - make sure compression is on.
 
+## Browser support
+
+Chromium and Safari are the tested targets; Firefox renders the planet but its MediaPipe support is
+less reliable. The hard requirements are WebGL2, ES modules, and a secure context for the camera. A
+phone will render the planet, but survival mode is hidden below 900px because the camera panel is.
+
 ## Code layout
 
 ```
