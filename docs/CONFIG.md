@@ -51,3 +51,8 @@ higher if several people share one connection, which is normal on office or camp
 
 A ceiling on your key across all visitors per day. Default `60`. The thing that stops a link going
 around and emptying your quota overnight.
+
+## `DS_RUNS_PER_HOUR`
+
+Finished runs accepted per IP per hour, whether or not a key is involved. Default `30`. This one
+protects the server rather than the quota.
