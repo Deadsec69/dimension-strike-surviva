@@ -58,3 +58,8 @@ clear the board if it is yours to clear.
 
 The domain's A record has to resolve to the droplet before Caddy asks, or the ACME challenge fails
 and it retries with a backoff. `deploy/setup.sh` warns when the two disagree.
+
+### The Docker image is enormous
+
+The build context is the directory, not the git tree, so a gitignored-but-present file is still
+copied. A stray screen recording once put 391MB in the image. Check `.dockerignore`.
