@@ -886,3 +886,10 @@ Gesture recognition by [MediaPipe](https://developers.google.com/mediapipe).
 - Public rows carry warning codes, never exception text, because error strings are how secrets escape.
 - Clearing the board needs `DS_ADMIN_TOKEN`; without one configured, only loopback may clear.
 - Portraits are served solely by `/api/portrait/:id`, which checks ownership. `runs/` is not static.
+
+## Known limits
+
+- Free-credit tracking is deterrence, not enforcement: a fresh browser or a VPN earns another one.
+- Callsign uniqueness is per board, so clearing it frees every name.
+- The demo video in `docs/` shows a pre-translation interface.
+- Runs recorded before ownership tracking have no owner and show the placeholder to everybody.
