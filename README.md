@@ -868,3 +868,12 @@ docker run --rm -v dimension-strike_runs:/r -v "$PWD":/b alpine \
 ```
 
 Restoring is the same command with `tar xzf`. There is no database and nothing else to back up.
+
+## Credits
+
+Built on [Mr-Salticidae/dimension-strike](https://github.com/Mr-Salticidae/dimension-strike): the
+planet renderer, the shaders, the gesture pipeline and the art direction are theirs. Survival mode, the
+scoring service and the deployment are added on top.
+
+Surface imagery from [Solar System Scope](https://www.solarsystemscope.com/textures/), CC BY 4.0.
+Gesture recognition by [MediaPipe](https://developers.google.com/mediapipe).
