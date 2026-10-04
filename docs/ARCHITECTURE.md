@@ -17,3 +17,15 @@ the shared leaderboard, and nothing else.
 | Leaderboard | Server disk | A single JSON file |
 
 Nothing about gameplay round-trips to the server. There is no tick, no authoritative state, no sync.
+
+## Module map
+
+```
+js/main.js       wiring and the frame loop; owns nothing, coordinates everything
+js/planet.js     the Three.js scene, every shader, the post chain, camera handling
+js/civ.js        the civilization's state and its broadcasts
+js/gesture.js    MediaPipe wrapper: the recognition state machine
+js/survival.js   survival mode: rocks, shields, beams, scoring (loaded on demand)
+js/board.js      end-of-run scoring, portrait polling, the observer board
+serve.py         static files, the Gemini pipeline, the board, quota
+```
