@@ -33,6 +33,16 @@ Required to clear the leaderboard. Generate one with `openssl rand -hex 24`.
 Unset means the server assumes it is local and accepts a clear from loopback only. That keeps local
 development exactly as it was while making a public deployment safe by default.
 
+Sent as the `X-Admin-Token` header and compared with `secrets.compare_digest`, so a wrong token leaks
+nothing through timing. To unlock the control in a browser, visit `/?admin=<token>` once - it is stored
+in `localStorage` under `ds.admin` and the query string is stripped from the address bar immediately,
+so the token does not sit in history or in a shared screenshot.
+
+Note that `canClear` in `/api/health` is not the answer to "may I clear". It reports
+`(not ADMIN_TOKEN) and client_ip in (127.0.0.1, ::1)`, so with a token configured it is `false` for
+everybody - the stored token is what reveals the button, and the server re-checks the header on the
+request itself.
+
 ## `DS_FREE_PORTRAITS`
 
 How many portraits a visitor gets on your key, ever. Default `1`.
