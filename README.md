@@ -957,6 +957,20 @@ docker run --rm -v dimension-strike_runs:/r -v "$PWD":/b alpine \
 
 Restoring is the same command with `tar xzf`. There is no database and nothing else to back up.
 
+**On App Platform there is nothing to mount and no disk to copy**, so a deploy is a data loss event
+and the only backup is one taken over HTTP beforehand:
+
+```bash
+curl -s https://<app>.ondigitalocean.app/api/leaderboard?limit=50 > board-backup.json
+```
+
+Be clear about what that does and does not save. It captures callsigns, scores and tiers - the ranking
+- and the board popup's CSV export is the same data by hand. It does **not** capture the portraits:
+`/api/portrait/:id` serves an image only to the browser that generated it, so there is no route that
+can collect everyone's, which is the privacy property working as intended rather than a gap. Nor is
+there an import endpoint, so a restore means re-entering runs, not uploading a file. Treat the JSON as
+a record, not as something you can put back.
+
 ## Credits
 
 Built on [Mr-Salticidae/dimension-strike](https://github.com/Mr-Salticidae/dimension-strike): the
