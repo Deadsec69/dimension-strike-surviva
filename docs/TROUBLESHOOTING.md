@@ -17,3 +17,9 @@ COEP headers. `serve.py` sets both; GitHub Pages cannot, so Pages is always the 
 Hold the index finger straight up with the palm toward the camera and move your whole hand. The
 crosshair follows the fingertip's position, not the direction it points, and tilting the finger toward
 the camera shortens it enough to lose both the classifier and the geometric fallback at once.
+
+### A fist does not fire
+
+It has to be still. Arming needs 300ms without much palm movement, then the pose held for about
+0.7s. A hand still travelling is read as a spin, deliberately - a moving hand's pose is not
+trustworthy.
