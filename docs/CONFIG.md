@@ -56,3 +56,9 @@ around and emptying your quota overnight.
 
 Finished runs accepted per IP per hour, whether or not a key is involved. Default `30`. This one
 protects the server rather than the quota.
+
+## `PORT / HOST`
+
+`PORT` set makes the server bind `0.0.0.0` - what a container platform needs. Unset, it binds
+loopback on 8123 (or `argv[1]`), so running it locally never exposes anything to the network by
+accident. `HOST` overrides the address explicitly.
