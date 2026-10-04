@@ -38,3 +38,8 @@ at over ten. Check the server log: the run row carries only a code, while the re
 
 That is correct. You only see portraits your own browser generated; every other row shows a shared
 placeholder, so no stranger's face is exposed.
+
+### My own old runs show the placeholder too
+
+Runs recorded before ownership tracking existed have no owner, so they are nobody's. They are not
+lost - new runs attach to your browser normally.
