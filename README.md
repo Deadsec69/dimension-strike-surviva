@@ -135,8 +135,17 @@ camera never starts.
 3. Deploy. You get `https://<app>-<hash>.ondigitalocean.app`.
 4. Visit `/?admin=<token>` once to reveal the board's CLEAR control.
 
-No domain, no DNS, no certificate management, no Caddy. `deploy_on_push` is on, so pushing to `main`
-redeploys.
+No domain, no DNS, no certificate management, no Caddy.
+
+**Deploys are deliberate, not automatic.** The spec uses a plain `git` source rather than the GitHub
+integration, for two reasons: it needs no OAuth authorization, so the app can be created entirely from
+the CLI; and it has no `deploy_on_push`. That second one is the point - App Platform has no persistent
+storage, so an automatic deploy on every push would silently wipe the leaderboard and the portraits.
+Deploy when you mean to:
+
+```bash
+doctl apps create-deployment <app-id>
+```
 
 **The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
 storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
