@@ -46,3 +46,8 @@ Free portraits per IP + user-agent bucket per day. Default `3`.
 
 The backstop behind the cookie. The bucket is a truncated hash; the raw IP is never stored. Set it
 higher if several people share one connection, which is normal on office or campus networks.
+
+## `DS_GLOBAL_PER_DAY`
+
+A ceiling on your key across all visitors per day. Default `60`. The thing that stops a link going
+around and emptying your quota overnight.
