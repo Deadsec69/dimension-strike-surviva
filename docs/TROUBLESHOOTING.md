@@ -53,3 +53,8 @@ redeploy. Mount a volume at `/app/runs`.
 
 Callsigns are unique across the whole board, including names you used before. Pick a new one, or
 clear the board if it is yours to clear.
+
+### Caddy will not get a certificate
+
+The domain's A record has to resolve to the droplet before Caddy asks, or the ACME challenge fails
+and it retries with a backoff. `deploy/setup.sh` warns when the two disagree.
