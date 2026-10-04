@@ -78,6 +78,18 @@ cannot do is custom response headers, so the COOP/COEP cross-origin isolation pa
 MediaPipe falls back to XNNPACK rather than the GPU delegate - gesture recognition still works, it
 just runs on the CPU.
 
+**Pages is the game only.** It is a static host, so there is no `/api/` behind it: no leaderboard, no
+portraits and no scoring service. The whole of survival mode that happens in the browser works, and
+everything that needs the server does not. For the full thing - board, portraits, free credit - the
+site has to be served by `serve.py`, which is what the deployment sections below are about. The
+instance running from this repository is:
+
+**https://dimension-strike-qsn3g.ondigitalocean.app** - DigitalOcean App Platform, `basic-xxs`, $5/mo.
+
+Its app is named `experimental` in the DigitalOcean dashboard; the hostname keeps the name the app was
+created under, because App Platform pins the starter domain at creation. The board there is wiped by
+every deploy - that platform has no persistent disk.
+
 ## Deploy it publicly
 
 The game already runs entirely on the visitor's machine - Three.js and MediaPipe use their GPU, CPU and
