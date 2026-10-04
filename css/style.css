@@ -304,7 +304,13 @@ body.is-survive .cam.is-live #apiKey{display:none}
 #privacyNote{display:none}
 body:not(.is-survive) .cam.is-live #privacyNote{display:block}
 .cam-note.is-quiet{color:var(--ink-3); opacity:.85; margin-top:4px}
+/* An insecure origin kills the camera and therefore survival mode. Say so up front: the Start Survival
+   button is gated behind .cam.is-live, so otherwise the whole mode is simply absent with no reason given. */
+#insecureNote{text-align:left; line-height:1.6}
+#insecureNote code{font-family:var(--mono); font-size:9px}
+body.is-insecure #camHint{display:none}
 #survivalBtn:disabled{opacity:.35; cursor:not-allowed}
+#camBtn:disabled{opacity:.35; cursor:not-allowed}        /* insecure origin: the browser will refuse anyway */
 
 /* Portrait: a panel above the verdict. The tier only changes the border and glow; when degraded
    (raw snapshot) an extra tint of the same hue is layered on */

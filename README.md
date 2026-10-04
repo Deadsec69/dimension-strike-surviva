@@ -136,6 +136,10 @@ being a real name, which is what allows a real certificate.
 Leave `DOMAIN` blank and `setup.sh` derives it from the droplet's own IP. Set it only if you would
 rather use a domain you own.
 
+**It has to be 443.** Certificate issuance needs a challenge on a fixed port - HTTP-01 on 80 or
+TLS-ALPN-01 on 443 - so exposing some other port like 8123 instead means plain HTTP forever, and plain
+HTTP means the browser blocks the camera and the whole gesture half of the game is unreachable.
+
 **One public port.** Only 443 is published. The ACME HTTP challenge wants port 80, so Caddy falls back
 to TLS-ALPN-01 over 443 instead. The trade-off is that `http://` does not redirect, so share the
 `https://` URL. SSH obviously stays open, or you lose the droplet.

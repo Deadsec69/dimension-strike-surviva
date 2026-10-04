@@ -4,8 +4,24 @@ Symptoms in the order people actually hit them.
 
 ### The camera button does nothing / says HTTPS required
 
-`getUserMedia` only runs in a secure context. `localhost` counts; a bare IP or a plain `http://`
-domain does not. On a deployment this means a real certificate, which means a real domain name.
+`getUserMedia` only runs in a secure context. `localhost` and `127.0.0.1` count; a bare IP or a plain
+`http://` address does not - on an insecure origin Chrome does not merely refuse the call, it removes
+`navigator.mediaDevices` entirely. The page still renders and the sandbox still works, but gestures,
+survival mode, scoring and portraits are all unreachable, and the Start Survival button never appears
+because it is gated behind an active camera.
+
+**Which ports you expose decides this.** Automatic certificates need a challenge the CA can reach, and
+both run on fixed ports: HTTP-01 on 80, TLS-ALPN-01 on 443. Neither can run on an arbitrary port, and
+DNS-01 needs a DNS provider API that `sslip.io` does not offer.
+
+| Exposed | URL | Gestures |
+|---|---|---|
+| 443 only (the committed setup) | `https://<dashed-ip>.sslip.io` | Yes |
+| 8123 only, plain HTTP | `http://<ip>:8123` | No - sandbox only |
+| 8123 only, self-signed certificate | `https://<ip>:8123` | Yes, after every visitor clicks through a full-page browser warning |
+| 443 and 8123 | certificate issued on 443, served on 8123 | Yes, but that is two ports |
+
+So a single port at 8123 means plain HTTP permanently. Use 443.
 
 ### Gestures work but feel sluggish
 

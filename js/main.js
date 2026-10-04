@@ -18,7 +18,8 @@ const el = {
   envTag:$('envTag'), survivalBtn:$('survivalBtn'),
   survTime:$('survTime'), survKills:$('survKills'), survBlocks:$('survBlocks'), survShields:$('survShields'), survScore:$('survScore'), survTier:$('survTier'),
   heatWarn:$('heatWarn'),
-  userName:$('userName'), nameNote:$('nameNote'), apiKey:$('apiKey'), keyNote:$('keyNote'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
+  userName:$('userName'), nameNote:$('nameNote'), apiKey:$('apiKey'), keyNote:$('keyNote'),
+  insecureNote:$('insecureNote'), portrait:$('portrait'), portraitImg:$('portraitImg'), portraitMeta:$('portraitMeta'), board:$('board'), boardClear:$('boardClear'), boardTitle:$('boardTitle'),
   boardModal:$('boardModal'), boardRows:$('boardRows'), boardCsv:$('boardCsv'), boardClose:$('boardClose'), modalCount:$('modalCount'),
   boardClearModal:$('boardClearModal')
 };
@@ -351,6 +352,18 @@ board.onCredit = (left, total, hasKey) => {
     : left > 0 ? `${left} free portrait${left === 1 ? '' : 's'} left, then add your own key. `
     : 'Free portrait used — add your own key for more. ';
 };
+
+/* An insecure origin (plain http on an IP or a LAN address) means the browser will refuse the camera,
+   which takes gestures, survival mode, scoring and portraits with it. Say so on load rather than
+   letting someone click a dead button: the Start Survival control is gated behind an active camera, so
+   the entire mode would otherwise just be missing with nothing to explain why. */
+if(!window.isSecureContext){
+  document.body.classList.add('is-insecure');
+  el.insecureNote.hidden = false;
+  el.camBtn.disabled = true;
+  el.camBtn.title = 'Needs https:// — the browser blocks the camera on an insecure origin';
+  setGestState('HTTPS required', 'err');
+}
 
 board.probe();                                   // probe once on page load: the board isn't limited to survival mode
 // Observer callsign: required before a run, and the last one is remembered
