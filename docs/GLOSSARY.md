@@ -31,3 +31,6 @@ hang off it so two thousand fragments do not light up in unison.
 
 **Placeholder portrait.** The shared image shown in place of other players' portraits. Everyone sees it; only your own runs show
 a real face.
+
+**Free credit.** Portraits a visitor may generate on the deployment's key before needing their own. Tracked per cookie,
+with a hashed IP bucket behind it.
