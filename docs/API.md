@@ -59,3 +59,18 @@ Deletes every run and every portrait file. Irreversible.
 
 Requires `X-Admin-Token` matching `DS_ADMIN_TOKEN`. With no token configured the server assumes it is
 local and accepts the call from loopback only. Anything else gets 403.
+
+## Warning codes
+
+`warnings` carries short codes, never exception text - the field is public, and raw errors are where
+secrets escape. The detail goes to the server log instead.
+
+| Code | Meaning |
+|---|---|
+| `no_snapshot` | No camera frame was sent |
+| `no_key` | No key configured and none supplied |
+| `free_used` | This visitor's free credit is spent |
+| `daily_cap` | The global daily ceiling was reached |
+| `rate_limited` | Too many runs from this IP this hour |
+| `emotion_failed` | The expression read failed |
+| `portrait_failed` | Generation failed after a retry |
