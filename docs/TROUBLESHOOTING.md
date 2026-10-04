@@ -28,3 +28,8 @@ trustworthy.
 
 Survival mode only exists with the camera on, and the entrance is in the camera panel. Below 900px
 wide the panel is hidden and the mode goes with it.
+
+### The portrait never arrives
+
+Generation is backgrounded and the page polls for up to twenty minutes - Gemini has been measured
+at over ten. Check the server log: the run row carries only a code, while the real reason is logged.
