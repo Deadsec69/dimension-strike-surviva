@@ -43,3 +43,8 @@ placeholder, so no stranger's face is exposed.
 
 Runs recorded before ownership tracking existed have no owner, so they are nobody's. They are not
 lost - new runs attach to your browser normally.
+
+### The leaderboard emptied itself
+
+Almost always an ephemeral filesystem: a platform without a persistent disk resets `runs/` on every
+redeploy. Mount a volume at `/app/runs`.
