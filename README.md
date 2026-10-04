@@ -995,3 +995,10 @@ Gesture recognition by [MediaPipe](https://developers.google.com/mediapipe).
 - Callsign uniqueness is per board, so clearing it frees every name.
 - The demo video in `docs/` shows a pre-translation interface.
 - Runs recorded before ownership tracking have no owner and show the placeholder to everybody.
+- On App Platform the free-credit ledger is erased by every deploy, so `DS_FREE_PORTRAITS` means
+  "ever" only until the next one. `DS_GLOBAL_PER_DAY` is the only limit a redeploy cannot reset.
+- `canClear` in `/api/health` is not an authorization answer. With `DS_ADMIN_TOKEN` configured it is
+  `false` for everyone; the stored token reveals the control and the server re-checks the header.
+- An App Platform app's hostname is fixed at creation. Renaming changes the dashboard label only, so
+  the URL can disagree with the name indefinitely - as it does here.
+- The board can be exported but not imported, so a backup is a record rather than a restore.
