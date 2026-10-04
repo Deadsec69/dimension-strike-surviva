@@ -689,7 +689,8 @@ held below 0.3, and its entry glow burns on the side facing the planet (which is
 no velocity needs passing in) and crosses the bloom threshold. A beam's blue channel goes over 1.1
 while red is held under 1: blue light, not white, for the same reason as the foil.
 
-**Score comes only from asteroids, and self-ending is its own rule.** 5 for a kill, 2 for one a shield
+**Score comes only from asteroids, and self-ending is its own rule.** (Summary: 5 a kill, 2 a block,
++20 for ending it yourself, nothing for time.) 5 for a kill, 2 for one a shield
 blocks, and nothing for time: surviving isn't the skill, shooting them down is, and giving blocks
 points is what makes the shields' pressure cost worth paying. Difficulty steps by score: slow to
 start, a little faster at 125 points (twenty-five rocks), faster again at 200 (forty), then another
