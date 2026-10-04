@@ -48,3 +48,8 @@ lost - new runs attach to your browser normally.
 
 Almost always an ephemeral filesystem: a platform without a persistent disk resets `runs/` on every
 redeploy. Mount a volume at `/app/runs`.
+
+### Callsign taken, but it is my name
+
+Callsigns are unique across the whole board, including names you used before. Pick a new one, or
+clear the board if it is yours to clear.
