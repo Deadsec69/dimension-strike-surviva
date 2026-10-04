@@ -147,6 +147,20 @@ Deploy when you mean to:
 doctl apps create-deployment <app-id>
 ```
 
+**Never apply the spec file directly.** `doctl apps update --spec .do/app.yaml` replaces the *whole*
+spec, and the two `SECRET` entries in it carry no value - a value there would be a secret committed to
+git. So applying it stores the empty string for both, and the site comes up with `hasKey:false`:
+portraits refused, board unclearable. Use the wrapper instead, which merges the real values in from
+`.env` and pipes the result to `doctl` on stdin, so the merged spec never touches disk:
+
+```bash
+bash deploy/do-apply.sh            # app id from $DS_APP_ID in .env, or pass it as an argument
+DS_UPDATE_SOURCES=1 bash deploy/do-apply.sh   # also rebuild from the git branch
+```
+
+It generates `DS_ADMIN_TOKEN` on first run and appends it to `.env` so it stays stable across applies.
+A key that is missing from `.env` is left out of the spec entirely rather than sent as an empty secret.
+
 **The trade-off, in DigitalOcean's own words:** App Platform containers *"do not provide persistent data
 storage"* and *"do not support volumes"*, and the local filesystem is *"permanently lost after
 deployments and other container replacements"*. `runs/` holds `leaderboard.json`, `quota.json` and every
