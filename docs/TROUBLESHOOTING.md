@@ -158,3 +158,22 @@ So on App Platform the per-visitor limit is not the real protection - `DS_GLOBAL
 it is the only ceiling a redeploy cannot reset. If a link is circulating and you deploy often, that
 number is what stands between it and your Gemini bill. Persist `runs/` (Spaces, or the droplet setup in
 `deploy/`) if you need the per-visitor count to actually mean "ever".
+
+### How do I turn an App Platform app off for a while?
+
+You cannot. There is no pause, stop or deactivate - `doctl apps` offers `restart` and `delete` and
+nothing in between. Scaling to nothing does not work either: a spec with `instance_count: 0` is
+accepted and then silently coerced back to `1`, and `doctl apps propose` still returns the full
+`app_cost`, so the attempt costs the same as leaving it up.
+
+```bash
+doctl apps spec get <app-id> | sed 's/instance_count: 1/instance_count: 0/' \
+  | doctl apps propose --app <app-id> --spec - -o json | jq '.[0].spec.services[0].instance_count'
+# -> 1
+```
+
+So the only way to stop the charge is `doctl apps delete <app-id>`, and that is not a pause - it
+destroys the starter domain with the app. The hash in `<name>-<hash>.ondigitalocean.app` is assigned at
+creation and is not recoverable, so recreating the app later gives a **different URL** and every link
+already shared stops working. At $5/month, leaving it running costs about 17 cents a day; weigh that
+against a dead link before deleting something you intend to bring back.
