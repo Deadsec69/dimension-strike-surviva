@@ -82,6 +82,20 @@ that let MediaPipe use the GPU delegate) and makes about two Gemini calls per fi
 
 Your key stays in the server environment and is never sent to a browser in any of those branches.
 
+**You only ever see your own portraits.** A portrait is a likeness of a real person's face, so the
+board hands out the real image only to the browser that generated it (matched on the same `ds_uid`
+cookie). Every other row shows `assets/portrait-placeholder.jpg` instead, so the leaderboard still reads
+as a full ranking without exposing anyone. Enforcement is server-side, not cosmetic:
+
+- portraits are written to `runs/<callsign>/<time>_<tier>_<random>.jpg`, one folder per player;
+- `runs/` is **not** served as static files at all - a direct URL 404s;
+- `/api/portrait/<run id>` is the only way to fetch one, and it checks the cookie before reading the
+  file, so a guessed or shared link gets nothing;
+- the owning `uid` is never included in any response.
+
+Runs recorded before this existed have no owner, so they show the placeholder to everybody including
+you - they are not lost, just no longer attributable to a browser.
+
 **Metering.** An HttpOnly `ds_uid` cookie is the visitor's identity, with a hashed IP + user-agent
 bucket behind it (`DS_FP_PER_DAY`) so clearing cookies doesn't mint unlimited free portraits, plus a
 global daily ceiling (`DS_GLOBAL_PER_DAY`) and a per-IP request rate (`DS_RUNS_PER_HOUR`). The raw IP is

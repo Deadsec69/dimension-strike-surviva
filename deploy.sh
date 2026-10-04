@@ -28,7 +28,7 @@ git clone --quiet --depth 1 --single-branch --branch "$BRANCH" \
 
 # Wipe before copying so files deleted on main also disappear here; .git is untouched
 git -C "$WORK/site" rm -rq --ignore-unmatch .
-cp -r index.html css js vendor models textures LICENSE README.md .gitattributes "$WORK/site"/
+cp -r index.html css js vendor models textures assets LICENSE README.md .gitattributes "$WORK/site"/
 # Without this, Jekyll steps in and rearranges the directory
 touch "$WORK/site/.nojekyll"
 

@@ -33,6 +33,8 @@ QUOTA_FP_DAY = int(os.environ.get('DS_FP_PER_DAY', 3))        # per IP+UA bucket
 QUOTA_DAY    = int(os.environ.get('DS_GLOBAL_PER_DAY', 60))   # ceiling on the owner's key across everyone
 RATE_HOUR    = int(os.environ.get('DS_RUNS_PER_HOUR', 30))    # finished runs per IP per hour, key or no key
 ADMIN_TOKEN  = os.environ.get('DS_ADMIN_TOKEN', '').strip()   # unset = clearing the board is loopback-only
+# Shown in place of other players' portraits. A visitor only ever sees faces they generated themselves.
+PLACEHOLDER  = 'assets/portrait-placeholder.jpg'
 IMAGE_PREF = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-3-pro-image']
 TEXT_PREF  = ['gemini-2.5-flash', 'gemini-3.1-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite']
 
@@ -346,15 +348,17 @@ def safe_name(s):
     return s or 'anon'
 
 def save_image(data, mime, username, tier):
-    os.makedirs(RUNS, exist_ok=True)
+    """One folder per player, and a random filename. runs/ is no longer served as static files, so the
+    name is not a secret by itself - but a guessable path is one misconfiguration away from exposing a
+    stranger's face, and a random one costs nothing."""
+    folder = os.path.join(RUNS, safe_name(username))
+    os.makedirs(folder, exist_ok=True)
     ext = '.jpg' if 'jpeg' in str(mime) else '.png'
-    base = time.strftime('%Y%m%d-%H%M%S') + f'_{safe_name(username)}_{tier}'
-    path, n = os.path.join(RUNS, base + ext), 0
-    while os.path.exists(path):
-        n += 1; path = os.path.join(RUNS, f'{base}-{n}{ext}')
+    name = f'{time.strftime("%Y%m%d-%H%M%S")}_{tier}_{secrets.token_hex(8)}{ext}'
+    path = os.path.join(folder, name)
     with open(path + '.tmp', 'wb') as f: f.write(data)
     os.replace(path + '.tmp', path)
-    return 'runs/' + urllib.parse.quote(os.path.basename(path))    # non-ASCII filenames need escaping or <img src> breaks; the path is relative so it works at any mount point
+    return os.path.relpath(path, ROOT)                             # stored, not served: see public_row()
 
 _block = threading.Lock()
 def board_read():
@@ -398,6 +402,11 @@ def board_clear():
             if not path.startswith(root + os.sep): continue          # only ever delete inside runs/
             try: os.remove(path); removed += 1
             except FileNotFoundError: pass
+        for d in os.listdir(RUNS) if os.path.isdir(RUNS) else []:     # drop the now-empty player folders
+            full = os.path.join(RUNS, d)
+            if os.path.isdir(full) and not os.listdir(full):
+                try: os.rmdir(full)
+                except OSError: pass
         tmp = BOARD + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump([], f); f.flush(); os.fsync(f.fileno())
@@ -465,6 +474,26 @@ def quota_left(uid, fp, ip):
     if not ok: return 0
     return max(0, QUOTA_FREE - quota_read().get('uid', {}).get(uid, 0))
 
+def public_row(e, uid):
+    """What a visitor is allowed to see of a run. A portrait is a photo-derived likeness of a real
+    person, so only the player who generated it gets the real thing; everyone else sees the shared
+    placeholder. The owning uid never goes out at all - it is a bearer identity for that browser."""
+    out = {k: v for k, v in e.items() if k != 'uid'}
+    mine = uid and e.get('uid') == uid
+    if e.get('portrait'):
+        out['portrait'] = f"api/portrait/{e['id']}" if mine else PLACEHOLDER
+    elif not e.get('pending'):
+        out['portrait'] = PLACEHOLDER if not mine else None
+    out['mine'] = bool(mine)
+    return out
+
+def portrait_path(entry_id, uid):
+    """Filesystem path of a run's portrait, but only for the browser that generated it."""
+    e = board_get(entry_id)
+    if not e or not e.get('portrait') or not uid or e.get('uid') != uid: return None
+    p = os.path.realpath(os.path.join(ROOT, e['portrait']))
+    return p if p.startswith(os.path.realpath(RUNS) + os.sep) and os.path.isfile(p) else None
+
 # -- Scoring pipeline: a failed portrait is not a failed request --
 def finish(body, who=None):
     """who = (uid, fp, ip) identifying the visitor for the free allowance; None on a local run."""
@@ -495,7 +524,7 @@ def finish(body, who=None):
     else:
         owner_key_used = True                          # local run, no visitor identity to meter
     pending = not warn
-    entry = {'id': f'{int(time.time() * 1000):x}-{os.urandom(2).hex()}', 'username': username,
+    entry = {'id': f'{int(time.time() * 1000):x}-{os.urandom(2).hex()}', 'uid': (who[0] if who else ''), 'username': username,
              'score': score, 'kills': kills, 'blocks': blocks, 'elapsed': elapsed, 'tier': tier,
              'emotion': None, 'portrait': None, 'pending': pending,
              'ts': datetime.now().astimezone().isoformat(timespec='seconds'), 'ending': ending}
@@ -505,7 +534,9 @@ def finish(body, who=None):
                          args=(entry['id'], snap, tier, username, score, visitor_key), daemon=True).start()
     if who: quota_spend(*who, owner_key_used and pending)
     for w in warn: print('scoring degraded: ' + w, file=sys.stderr, flush=True)
-    out = {'entry': entry, 'leaderboard': board_top(rows, 10), 'warnings': warn}
+    me = who[0] if who else ''
+    out = {'entry': public_row(entry, me), 'leaderboard': [public_row(r, me) for r in board_top(rows, 10)],
+           'warnings': warn}
     if who: out['freeLeft'] = quota_left(*who)
     return out
 
@@ -550,6 +581,18 @@ class H(SimpleHTTPRequestHandler):
                 f'ds_uid={self._set_uid}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax')
         self.end_headers(); self.wfile.write(data)
 
+    def _send_file(self, path):
+        ctype = 'image/png' if path.lower().endswith('.png') else 'image/jpeg'
+        try:
+            with open(path, 'rb') as f: data = f.read()
+        except OSError:
+            return self._json(404, {'error': 'not found'})
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'private, max-age=86400')   # private: it is one person's likeness
+        self.end_headers(); self.wfile.write(data)
+
     def _client_ip(self):
         # Behind a platform proxy the socket address is the proxy's; the first XFF hop is the client
         xff = self.headers.get('X-Forwarded-For', '')
@@ -570,6 +613,8 @@ class H(SimpleHTTPRequestHandler):
         path, _, qs = self.path.partition('?')
         if any(seg.startswith('.') for seg in path.split('/')):         # .env / .git / .claude and friends all 404
             return self._json(404, {'error': 'not found'})
+        if path.lstrip('/').startswith('runs/'):                        # portraits are people's faces:
+            return self._json(404, {'error': 'not found'})              # only /api/portrait/<id> serves them
         if path == '/api/health':
             has = bool(api_key())
             who = self._who()
@@ -581,10 +626,15 @@ class H(SimpleHTTPRequestHandler):
         if path == '/api/leaderboard':
             try: limit = int((urllib.parse.parse_qs(qs).get('limit') or ['10'])[0])
             except ValueError: limit = 10
-            return self._json(200, {'leaderboard': board_top(board_read(), max(1, min(50, limit)))})
+            me = self._who()[0]
+            return self._json(200, {'leaderboard': [public_row(r, me) for r in board_top(board_read(), max(1, min(50, limit)))]})
+        if path.startswith('/api/portrait/'):
+            f = portrait_path(path.rsplit('/', 1)[-1], self._who()[0])
+            if not f: return self._json(404, {'error': 'not yours'})
+            return self._send_file(f)
         if path.startswith('/api/run/'):
             e = board_get(path.rsplit('/', 1)[-1])
-            return self._json(200, {'entry': e}) if e else self._json(404, {'error': 'no such run'})
+            return self._json(200, {'entry': public_row(e, self._who()[0])}) if e else self._json(404, {'error': 'no such run'})
         if path.startswith('/api/'): return self._json(404, {'error': 'no such endpoint'})
         return super().do_GET()
 
