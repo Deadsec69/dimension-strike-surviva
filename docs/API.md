@@ -24,3 +24,10 @@ One row per callsign - a player's best run - sorted by score. `limit` is clamped
 
 Each row carries `portrait`, which is `api/portrait/<id>` for runs this browser generated and the
 shared placeholder for everyone else, plus `mine: true|false`. See `public_row()` in `serve.py`.
+
+## GET /api/run/:id
+
+One run, same shape as a leaderboard row. Used while polling for a portrait that is still generating:
+`pending: true` means keep asking.
+
+404 if the id is unknown.
