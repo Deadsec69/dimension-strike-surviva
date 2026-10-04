@@ -25,3 +25,6 @@ lets the foil compress along a fixed world plane without turning with it.
 
 **Trauma.** A 0..1 shake intensity that decays linearly while the displacement uses its square, so a shake starts
 hard and ends cleanly.
+
+**Burst.** How far a given fragment has separated, as opposed to how far the overall animation has run. Effects
+hang off it so two thousand fragments do not light up in unison.
