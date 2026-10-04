@@ -34,3 +34,6 @@ a real face.
 
 **Free credit.** Portraits a visitor may generate on the deployment's key before needing their own. Tracked per cookie,
 with a hashed IP bucket behind it.
+
+**Specimen.** One civilization. Replaying moves to the next, numbered upward from 3,241 - you are not retrying, you
+are processing the next one.
