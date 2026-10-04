@@ -1,6 +1,16 @@
-# Automatic HTTPS. Caddy provisions and renews a Let's Encrypt certificate for $DOMAIN on its own,
-# which is the whole reason a domain is required: getUserMedia refuses to run over plain http, so
-# without a certificate the camera - and therefore the entire game - is dead.
+# Automatic HTTPS on a single port.
+#
+# Why HTTPS at all: getUserMedia refuses to run over plain http, so without a certificate the camera
+# never starts and there is no game. A bare IP cannot have a publicly trusted certificate, which is why
+# DOMAIN defaults to <dashed-ip>.sslip.io - a free wildcard DNS service that resolves
+# 134-209-1-2.sslip.io to 134.209.1.2. Nothing is registered or configured; the hostname *is* the IP,
+# and because it is a real name a real certificate can be issued for it.
+#
+# Only 443 is published. The ACME HTTP challenge wants port 80, so Caddy falls back to TLS-ALPN-01,
+# which runs entirely over 443. The issuers are left at their defaults deliberately: Caddy tries
+# Let's Encrypt and then ZeroSSL, and naming an issuer here would throw that fallback away - which
+# matters, because sslip.io is not on the Public Suffix List and therefore shares one Let's Encrypt
+# rate limit with everyone else using it.
 {$DOMAIN} {
 	encode zstd gzip
 

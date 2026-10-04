@@ -28,9 +28,10 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "80:80"              # 80 is needed for the ACME HTTP challenge and the redirect to 443
+      # One port. 80 is deliberately not published: the ACME HTTP challenge is disabled in the
+      # Caddyfile in favour of TLS-ALPN-01, which runs over 443 alone. The cost is that http:// does
+      # not redirect - visitors must arrive on https://, which the printed URL already does.
       - "443:443"
-      - "443:443/udp"        # HTTP/3
     environment:
       DOMAIN: "${DOMAIN}"
     volumes:

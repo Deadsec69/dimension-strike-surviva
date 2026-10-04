@@ -127,18 +127,32 @@ assumed to be local and only loopback may clear - so nothing changes while you d
 A $6/mo droplet, Docker, and Caddy for automatic HTTPS. The droplet's own disk is what keeps the board,
 the portraits and the free-credit ledger across restarts.
 
-**You need a domain.** `getUserMedia` refuses to run over plain `http://`, and Let's Encrypt will not
-issue a certificate for a bare IP address - so without a name pointed at the droplet the camera never
-starts and the game does not work. Any domain does, including a free DuckDNS subdomain. Point an
-**A record at the droplet's public IPv4** and let it propagate before you start.
+**No domain required, but HTTPS is.** `getUserMedia` refuses to run over plain `http://`, so an
+IP-only deployment would have no camera and therefore no game. A bare IP also cannot hold a publicly
+trusted certificate. The way out is `sslip.io`: it resolves `134-209-17-42.sslip.io` to
+`134.209.17.42`, so the hostname *is* the address - nothing to register, nothing to point - while still
+being a real name, which is what allows a real certificate.
+
+Leave `DOMAIN` blank and `setup.sh` derives it from the droplet's own IP. Set it only if you would
+rather use a domain you own.
+
+**One public port.** Only 443 is published. The ACME HTTP challenge wants port 80, so Caddy falls back
+to TLS-ALPN-01 over 443 instead. The trade-off is that `http://` does not redirect, so share the
+`https://` URL. SSH obviously stays open, or you lose the droplet.
 
 ```bash
 # on the droplet, as root
 git clone https://github.com/Deadsec69/dimension-strike-surviva.git /opt/dimension-strike
 cd /opt/dimension-strike/deploy
-cp .env.example .env && nano .env          # DOMAIN, GEMINI_API_KEY, DS_ADMIN_TOKEN
-bash setup.sh                              # installs Docker, opens 80/443, builds and starts
+cp .env.example .env && nano .env          # GEMINI_API_KEY and DS_ADMIN_TOKEN; leave DOMAIN blank
+bash setup.sh                              # installs Docker, opens 443, builds and starts
 ```
+
+It prints the URL to share, e.g. `https://134-209-17-42.sslip.io`.
+
+One caveat worth knowing: `sslip.io` is not on the Public Suffix List, so every certificate issued for
+it counts against a single shared Let's Encrypt rate limit. Caddy falls back to ZeroSSL automatically
+if that is exhausted, and pointing a domain you own at the droplet avoids the issue entirely.
 
 `setup.sh` is idempotent, so re-run it after a `git pull` to deploy a new version. To update by hand:
 `docker compose up -d --build`.
