@@ -16,3 +16,10 @@ python serve.py 8123
 ```
 
 `localhost` is a secure context, so the camera works without any certificate.
+
+## Conventions
+
+- No build step, and no pip dependencies. Pillow is optional and the code degrades without it.
+- Comments say why. If a constant looks arbitrary, the comment should say what went wrong at other
+  values.
+- Interface copy is English; so is everything else in the repo.
