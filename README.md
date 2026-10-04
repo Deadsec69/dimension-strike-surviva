@@ -84,11 +84,11 @@ everything that needs the server does not. For the full thing - board, portraits
 site has to be served by `serve.py`, which is what the deployment sections below are about. The
 instance running from this repository is:
 
-**https://dimension-strike-qsn3g.ondigitalocean.app** - DigitalOcean App Platform, `basic-xxs`, $5/mo.
+**https://dimension-strike-qvl38.ondigitalocean.app** - DigitalOcean App Platform, `basic-xxs`, $5/mo.
 
-Its app is named `experimental` in the DigitalOcean dashboard; the hostname keeps the name the app was
-created under, because App Platform pins the starter domain at creation. The board there is wiped by
-every deploy - that platform has no persistent disk.
+The board there is wiped by every deploy - that platform has no persistent disk. The hostname's suffix
+is assigned by DigitalOcean at creation and cannot be chosen or changed, so treat the whole URL as
+fixed for the life of the app: a redeploy keeps it, deleting the app loses it for good.
 
 ## Deploy it publicly
 
@@ -177,11 +177,13 @@ A key that is missing from `.env` is left out of the spec entirely rather than s
 **The app name is not the hostname, and renaming cannot move it.** App Platform derives the starter
 subdomain from the app's name once, when the app is created, and then pins it. Renaming the app leaves
 the old prefix in place, and there is no way to regenerate the subdomain - the only way to a different
-URL is a new app. So this app is named `experimental` in the dashboard while still answering on
-`dimension-strike-qsn3g.ondigitalocean.app`, the name it was created under. That is the useful
-direction of the constraint: a rename is safe for a link you have already shared. The direction that
-bites is the other one - choose the name carefully at creation, because that is the only moment it
-decides anything.
+URL is a new app. The useful direction of the constraint is that a rename is safe for a link you have
+already shared - the dashboard label moves and the hostname does not. The direction that bites is the
+other one: choose the name carefully at creation, because that is the only moment it decides anything.
+
+An earlier app was created from this spec, renamed, and later deleted to stop the charge - which took
+its hostname with it. The one running now was created as `dimension-strike` and so answers on
+`dimension-strike-qvl38.ondigitalocean.app`; the `qvl38` is DigitalOcean's, not ours.
 
 **Cost: $5/month.** One `basic-xxs` instance (1 shared vCPU, 512MB), which is what `.do/app.yaml`
 asks for and is enough - the server only serves files and makes about two Gemini calls per finished

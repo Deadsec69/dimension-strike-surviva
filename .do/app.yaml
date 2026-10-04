@@ -14,14 +14,15 @@
 # and other container replacements". runs/ holds leaderboard.json, quota.json and the portraits, so all
 # three reset on every deploy. For a persistent board, use Spaces Object Storage or the droplet setup
 # in deploy/ instead.
-# The name is what the DigitalOcean dashboard lists the app under. It is deliberately NOT the
-# hostname: App Platform derives the starter subdomain from the name once, when the app is created,
-# and then pins it - renaming an app leaves the old prefix in place and there is no way to regenerate
-# it. This app was created as "dimension-strike", so it still answers on
-#   https://dimension-strike-qsn3g.ondigitalocean.app
-# and renaming it here changed only the dashboard. That is the desired behaviour: the link has already
-# been shared, so it must not move. Changing the URL would mean creating a new app.
-name: experimental
+# The name decides the hostname, once. App Platform derives the starter subdomain from it when the app
+# is created and then pins it: renaming later moves the dashboard label only, leaves the old prefix in
+# the URL, and there is no way to regenerate the subdomain. So this is the one value here that cannot
+# be corrected after the fact - a different URL means creating a different app.
+#
+# A previous app was created from this spec, renamed to "experimental", and then deleted to stop the
+# charge, which took its hostname with it. This one is created as "dimension-strike" and answers on:
+#   https://dimension-strike-qvl38.ondigitalocean.app
+name: dimension-strike
 region: nyc
 
 services:

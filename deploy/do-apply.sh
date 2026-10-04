@@ -22,12 +22,26 @@ SPEC=.do/app.yaml
 [ -f "$SPEC" ] || { echo "no $SPEC" >&2; exit 1; }
 [ -f .env ] || { echo "no .env - it holds GEMINI_API_KEY and is gitignored on purpose" >&2; exit 1; }
 
-# Read .env without executing it: a stray backtick in a key should not run.
-while IFS='=' read -r k v; do
-  case "$k" in ''|\#*) continue;; esac
-  v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
-  export "$k=$v"
-done < .env
+# Read these without executing them: a stray backtick in a key or token should not run.
+# .env is the server's runtime settings; deploy/.env is deploy-time credentials, which have no
+# business in the process serve.py runs in. Both are gitignored.
+read_env() {
+  [ -f "$1" ] || return 0
+  while IFS='=' read -r k v; do
+    case "$k" in ''|\#*) continue;; esac
+    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+    export "$k=$v"
+  done < "$1"
+}
+read_env .env
+read_env deploy/.env
+
+# doctl falls back to its stored config when no token is in the environment, and that default may well
+# be a different account than the one this app lives in - which is how you update the wrong account's
+# resources. So require the token explicitly and say which account it resolves to before touching
+# anything.
+: "${DIGITALOCEAN_ACCESS_TOKEN:?set it in deploy/.env - refusing to fall back to the stored doctl default account}"
+echo "account: $(doctl account get --format Email --no-header 2>/dev/null || echo '(could not read)')" >&2
 
 APP_ID="${1:-${DS_APP_ID:-}}"
 [ -n "$APP_ID" ] || { echo "pass the app id, or set DS_APP_ID in .env" >&2; exit 1; }
