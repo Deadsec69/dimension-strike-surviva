@@ -19,3 +19,6 @@ the camera still shakes through the pause.
 
 **Armed.** The state in which a weapon pose will actually charge. Reached after the hand has been still long
 enough. A hand that just entered frame is never armed.
+
+**Spin as UV offset.** The planet mesh never rotates. Spin is a horizontal offset of the texture coordinates, which is what
+lets the foil compress along a fixed world plane without turning with it.
