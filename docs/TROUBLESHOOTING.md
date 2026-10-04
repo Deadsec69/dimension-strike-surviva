@@ -33,3 +33,8 @@ wide the panel is hidden and the mode goes with it.
 
 Generation is backgrounded and the page polls for up to twenty minutes - Gemini has been measured
 at over ten. Check the server log: the run row carries only a code, while the real reason is logged.
+
+### Everyone's portrait looks like the same picture
+
+That is correct. You only see portraits your own browser generated; every other row shows a shared
+placeholder, so no stranger's face is exposed.
