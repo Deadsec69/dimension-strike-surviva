@@ -13,3 +13,9 @@ their own. Read from the environment or `.env`; it is never sent to a browser an
 `runs/`.
 
 Unset is a supported mode, not an error: runs still score and the board still records them.
+
+## `GEMINI_IMAGE_MODEL / GEMINI_TEXT_MODEL`
+
+Pin the models instead of discovering them. Leave both blank and the server starts with its preferred
+pair and calibrates against `/v1beta/models` in a background thread - the listing endpoint has been
+measured at 122s, which a finishing run cannot wait for.
