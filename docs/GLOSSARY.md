@@ -22,3 +22,6 @@ enough. A hand that just entered frame is never armed.
 
 **Spin as UV offset.** The planet mesh never rotates. Spin is a horizontal offset of the texture coordinates, which is what
 lets the foil compress along a fixed world plane without turning with it.
+
+**Trauma.** A 0..1 shake intensity that decays linearly while the displacement uses its square, so a shake starts
+hard and ends cleanly.
