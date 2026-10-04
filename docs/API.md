@@ -17,3 +17,10 @@ The probe the page makes on load. Cheap and non-blocking.
 
 `hasKey` is a boolean - the key itself is never sent. `models` may be the preference list before the
 background discovery finishes; `discovered` says whether it has.
+
+## GET /api/leaderboard?limit=N
+
+One row per callsign - a player's best run - sorted by score. `limit` is clamped to 1..50.
+
+Each row carries `portrait`, which is `api/portrait/<id>` for runs this browser generated and the
+shared placeholder for everyone else, plus `mine: true|false`. See `public_row()` in `serve.py`.
