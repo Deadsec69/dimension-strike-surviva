@@ -50,6 +50,10 @@ How many portraits a visitor gets on your key, ever. Default `1`.
 Counted against their `ds_uid` cookie. Clearing cookies earns another one, which is what
 `DS_FP_PER_DAY` exists to blunt.
 
+"Ever" is only as durable as the ledger holding it. The count lives in `runs/quota.json`, so on a
+platform with no persistent disk - App Platform - it is erased on every deploy and everyone starts
+fresh. There, `DS_GLOBAL_PER_DAY` is the limit doing the real work, because a redeploy cannot reset it.
+
 ## `DS_FP_PER_DAY`
 
 Free portraits per IP + user-agent bucket per day. Default `3`.
